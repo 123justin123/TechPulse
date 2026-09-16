@@ -23,14 +23,14 @@
   "dependencies": {
     "@anthropic-ai/sdk": "0.124.0",
     "@google/genai": "2.22.0",
-    "better-sqlite3": "12.11.1",
+    "better-sqlite3": "13.0.3",
     "discord.js": "14.27.0",
-    "dotenv": "16.6.1",
+    "dotenv": "17.4.2",
     "htmlparser2": "12.0.0",
     "node-cron": "4.6.0",
     "openai": "7.15.0",
     "rss-parser": "3.13.0",
-    "zod": "4.5.4"
+    "zod": "4.6.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
