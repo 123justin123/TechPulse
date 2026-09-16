@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Personal tech watch: collects articles, scores them with an LLM and posts a daily digest to Discord.",
+  "description": "Personal tech watch: collects articles, scores them with an LLM and posts a daily digest to messaging channels.",
   "engines": {
     "node": ">=22"
   },

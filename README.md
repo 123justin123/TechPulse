@@ -7,15 +7,16 @@
 </p>
 
 Personal tech watch. TechPulse collects articles from RSS feeds, scores them with an LLM
-against topics you describe in plain language, and posts a daily digest to Discord.
+against topics you describe in plain language, and posts a daily digest to your messaging
+channels. Discord is supported today; channels are pluggable (Slack, Telegram, email…).
 
 Node.js, strict TypeScript, SQLite, one container.
 
 ## How it works
 
 ```
-collect ──► score ──► digest ──► Discord
-  RSS        LLM      best articles by topic
+collect ──► score ──► digest ──► channels
+  RSS        LLM      best articles by topic   Discord, …
 ```
 
 Three scheduled jobs share a SQLite database:
@@ -53,6 +54,8 @@ Without a bot, the digest is still sent; only the commands are disabled.
 3. Your user ID: Discord settings › Advanced › Developer Mode, then right-click your name › Copy User ID.
 
 ## Usage
+
+Each channel exposes the same commands in its own syntax. On Discord, they are slash commands:
 
 | Command | Effect |
 | --- | --- |
@@ -117,7 +120,7 @@ src/
   commands.ts    channel-agnostic commands
   sources/       RSS collection, excerpt cleaning
   llm/           Anthropic, OpenAI, Gemini behind one interface
-  channels/      Discord behind one interface
+  channels/      Discord (more to come) behind one interface
 ```
 
 Dependencies are built once in `main.ts` and passed down, so every module is tested with
