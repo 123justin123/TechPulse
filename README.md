@@ -44,6 +44,7 @@ Fill in `.env` first:
 | `DISCORD_ALLOWED_USER_IDS` | your Discord user ID, required with a bot |
 
 Invalid or missing values are all listed at startup: `docker compose logs techpulse`.
+Articles and topics are stored in the `techpulse-data` Docker volume.
 
 ### Discord bot (optional)
 
@@ -71,7 +72,7 @@ The LLM turns the sentence into a label and a precise definition used for scorin
 
 ### Feeds
 
-Sources are RSS or Atom feeds in `config/feeds.json`, reloaded on every run:
+Sources are RSS or Atom feeds in `config/feeds.json`, built into the image (redeploy after editing it):
 
 ```json
 [{ "name": "Lobsters", "url": "https://lobste.rs/rss" }]
@@ -106,6 +107,15 @@ clear them. On Gemini's free tier, only Flash models are available.
 | `AI_MAX_ITEMS_PER_RUN` | `60` | articles scored per run |
 
 All variables are documented in `.env.example`.
+
+## Deployment
+
+**Docker Compose**: clone the repository on the server, add `.env`, then `docker compose up -d --build`.
+Update with `git pull && docker compose up -d --build`. No port needs to be opened.
+
+**[Dokploy](https://dokploy.com)**: create a *Compose* service from the GitHub repository, paste
+the variables in the *Environment* tab (Dokploy writes them to `.env`), enable auto deploy and
+deploy. Back up the `techpulse-data` volume with *Volume Backups*.
 
 ## Architecture
 
@@ -147,6 +157,5 @@ npm install scripts are disabled and new releases are only installed after 7 day
 
 - **Slash commands missing**: invite the bot with the `applications.commands` scope.
 - **"You are not allowed to control TechPulse."**: add your ID to `DISCORD_ALLOWED_USER_IDS`.
-- **Permission denied on `data/`**: `sudo chown -R 1000:1000 ./data` (the container runs as uid 1000).
 - **Empty digest**: no active topic, or lower `DIGEST_SCORE_THRESHOLD`.
 - **`Gemini rate limit reached: ... limit: 0`**: the model is not in the free tier, use a Flash model.
