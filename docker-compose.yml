@@ -1,0 +1,14 @@
+services:
+  techpulse:
+    build: .
+    image: techpulse:latest
+    env_file: .env
+    init: true
+    restart: unless-stopped
+    environment:
+      DB_PATH: /app/data/techpulse.db
+      FEEDS_FILE: /app/config/feeds.json
+      TZ: ${TZ:-Europe/Paris}
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
