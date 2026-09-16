@@ -1,0 +1,73 @@
+import type { Db } from "./db.js";
+import type { LlmProvider } from "./llm/provider.js";
+import { errorMessage } from "./logger.js";
+import { addTopic, listTopics, removeTopic } from "./topics.js";
+
+export const JOB_NAMES = ["collect", "score", "digest"] as const;
+export type JobName = (typeof JOB_NAMES)[number];
+
+export function isJobName(value: unknown): value is JobName {
+  return (JOB_NAMES as readonly unknown[]).includes(value);
+}
+
+export type Command =
+  | { name: "topic-add"; phrase: string }
+  | { name: "topic-remove"; label: string }
+  | { name: "topic-list" }
+  | { name: "run"; job: JobName };
+
+export interface ReplySection {
+  title?: string;
+  body: string;
+}
+
+export type CommandReply = ReplySection[];
+
+export type CommandHandler = (command: Command) => Promise<CommandReply>;
+
+export interface CommandHandlerDependencies {
+  db: Db;
+  llm: LlmProvider;
+  language: string;
+  runJob: (job: JobName) => Promise<string>;
+}
+
+const text = (body: string): CommandReply => [{ body }];
+
+export function createCommandHandler({ db, llm, language, runJob }: CommandHandlerDependencies): CommandHandler {
+  return async (command) => {
+    try {
+      switch (command.name) {
+        case "topic-add": {
+          const topic = await addTopic({ db, llm, language }, command.phrase);
+          return [{ title: `${topicOutcome(topic)}: ${topic.label}`, body: topic.description }];
+        }
+
+        case "topic-remove":
+          return removeTopic(db, command.label)
+            ? text(`Topic "${command.label}" disabled. Already classified articles keep it.`)
+            : text(`No active topic named "${command.label}".`);
+
+        case "topic-list": {
+          const topics = listTopics(db);
+          if (topics.length === 0) return text("No topic yet. Add one to start scoring articles.");
+          return topics.map((topic) => ({
+            title: `${topic.active ? "●" : "○"} ${topic.label}${topic.active ? "" : " (inactive)"}`,
+            body: topic.description,
+          }));
+        }
+
+        case "run":
+          return text(await runJob(command.job));
+      }
+    } catch (error) {
+      return text(`Failed: ${errorMessage(error)}`);
+    }
+  };
+}
+
+function topicOutcome({ created, reactivated }: { created: boolean; reactivated: boolean }): string {
+  if (created) return "Topic created";
+  if (reactivated) return "Topic reactivated";
+  return "Topic updated";
+}

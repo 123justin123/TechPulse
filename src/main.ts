@@ -1,0 +1,97 @@
+import "dotenv/config";
+import { combineChannels, createChannel } from "./channels/index.js";
+import { createCommandHandler } from "./commands.js";
+import { type Config, ConfigError, loadConfig } from "./config.js";
+import { openDatabase, schemaVersion } from "./db.js";
+import { sendDigest } from "./digest.js";
+import { createHttp } from "./http.js";
+import { createLlmProvider } from "./llm/index.js";
+import { createLogger, errorMessage } from "./logger.js";
+import { createScheduler } from "./scheduler.js";
+import { scorePending } from "./scoring.js";
+import { createPageDescriber } from "./sources/enrich.js";
+import { collectAll, loadSources } from "./sources/index.js";
+
+function readConfigOrExit(): Config {
+  try {
+    return loadConfig();
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      console.error(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
+}
+
+const config = readConfigOrExit();
+const log = createLogger("techpulse", config.logLevel);
+const db = openDatabase(config.files.database);
+const http = createHttp();
+const llm = createLlmProvider(config.llm);
+const channel = combineChannels(
+  config.channels.map((channelConfig) => createChannel(channelConfig, log)),
+  log.child("channels"),
+);
+
+const scheduler = createScheduler({
+  log: log.child("scheduler"),
+  timezone: config.timezone,
+  jobs: [
+    {
+      name: "collect",
+      cron: config.cron.collect,
+      runOnStart: true,
+      run: async () =>
+        collectAll(db, await loadSources(config.files.feeds, http), {
+          log: log.child("collect"),
+          maxItemAgeDays: config.collect.maxItemAgeDays,
+          describePage: createPageDescriber(http),
+        }),
+    },
+    {
+      name: "score",
+      cron: config.cron.score,
+      runOnStart: true,
+      run: () =>
+        scorePending({
+          db,
+          llm,
+          language: config.language,
+          settings: config.scoring,
+          log: log.child("score"),
+        }),
+    },
+    {
+      name: "digest",
+      cron: config.cron.digest,
+      runOnStart: false,
+      run: () => sendDigest({ db, channel, settings: config.digest }),
+    },
+  ],
+});
+
+log.info(
+  `Database ready (schema v${schemaVersion(db)}). LLM: ${config.llm.provider}, ` +
+    `topics with ${llm.models.topic}, scoring with ${llm.models.scoring}. Channels: ${channel.name}.`,
+);
+
+await channel.listen?.(
+  createCommandHandler({ db, llm, language: config.language, runJob: (job) => scheduler.runNow(job) }),
+);
+scheduler.start();
+
+let isShuttingDown = false;
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  log.info(`${signal} received, shutting down.`);
+  await scheduler.stop();
+  await channel.close();
+  db.close();
+  process.exit(0);
+}
+
+process.on("SIGTERM", (signal) => void shutdown(signal));
+process.on("SIGINT", (signal) => void shutdown(signal));
+process.on("unhandledRejection", (reason) => log.error(`Unhandled promise rejection: ${errorMessage(reason)}`));

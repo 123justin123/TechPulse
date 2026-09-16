@@ -1,0 +1,58 @@
+[
+  {
+    "name": "Hacker News",
+    "url": "https://hnrss.org/frontpage?points=100"
+  },
+  {
+    "name": "Lobsters",
+    "url": "https://lobste.rs/rss"
+  },
+  {
+    "name": "Ars Technica",
+    "url": "https://feeds.arstechnica.com/arstechnica/technology-lab"
+  },
+  {
+    "name": "The Register",
+    "url": "https://www.theregister.com/headlines.atom"
+  },
+  {
+    "name": "Korben",
+    "url": "https://korben.info/feedfull.xml"
+  },
+  {
+    "name": "LWN",
+    "url": "https://lwn.net/headlines/newrss"
+  },
+  {
+    "name": "InfoQ",
+    "url": "https://feed.infoq.com/"
+  },
+  {
+    "name": "The Pragmatic Engineer",
+    "url": "https://newsletter.pragmaticengineer.com/feed"
+  },
+  {
+    "name": "Martin Fowler",
+    "url": "https://martinfowler.com/feed.atom"
+  },
+  {
+    "name": "Simon Willison",
+    "url": "https://simonwillison.net/atom/everything/"
+  },
+  {
+    "name": "Cloudflare",
+    "url": "https://blog.cloudflare.com/rss/"
+  },
+  {
+    "name": "Krebs on Security",
+    "url": "https://krebsonsecurity.com/feed/"
+  },
+  {
+    "name": "Schneier on Security",
+    "url": "https://www.schneier.com/feed/atom/"
+  },
+  {
+    "name": "GitHub Trending",
+    "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml"
+  }
+]
