@@ -3,6 +3,7 @@ import {
   type Client,
   DiscordAPIError,
   type Guild,
+  OverwriteType,
   PermissionFlagsBits,
   RESTJSONErrorCodes,
   type TextChannel,
@@ -157,7 +158,7 @@ export async function createGuildApi(
       const category = await guild.channels.create({
         name,
         type: ChannelType.GuildCategory,
-        permissionOverwrites: readOnly ? [readOnlyOverwrite(guild)] : [],
+        permissionOverwrites: readOnly ? await readOnlyOverwrites(guild) : [],
       });
       return category.id;
     },
@@ -195,7 +196,7 @@ export async function createGuildApi(
       } catch (error) {
         log.warn(
           `#${channel.name} moved, but its permissions could not follow its category ` +
-            `(the bot needs Manage Roles): ${errorMessage(error)}`,
+            `(the bot needs Manage Roles, and Send Messages in that category): ${errorMessage(error)}`,
         );
       }
     },
@@ -224,8 +225,16 @@ async function resolveGuild(client: Client, guildId: string | undefined): Promis
   );
 }
 
-function readOnlyOverwrite(guild: Guild) {
-  return { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.SendMessages] };
+async function readOnlyOverwrites(guild: Guild) {
+  const bot = await guild.members.fetchMe();
+  return [
+    { id: guild.roles.everyone.id, type: OverwriteType.Role, deny: [PermissionFlagsBits.SendMessages] },
+    {
+      id: bot.id,
+      type: OverwriteType.Member,
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
+    },
+  ];
 }
 
 export function parseWebhookUrl(url: string): { id: string; token: string } {
