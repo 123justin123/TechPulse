@@ -6,7 +6,6 @@ import type { Environment } from "../../src/config/env.js";
 const BASE_ENV = {
   CHANNELS: "discord",
   DISCORD_BOT_TOKEN: "bot-token",
-  DISCORD_ALLOWED_USER_IDS: "12",
   LLM_API_KEY: "sk-ant-test",
 };
 
@@ -33,7 +32,7 @@ describe("loadConfig", () => {
     assert.deepEqual(config.channels, [
       {
         name: "discord",
-        settings: { botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined },
+        settings: { botToken: "bot-token", guildId: undefined },
       },
     ]);
   });
@@ -49,7 +48,6 @@ describe("loadConfig", () => {
     const problems = problemsOf({ LLM_API_KEY: "sk-ant-test", CHANNELS: "discord" });
     assert.deepEqual(problems, [
       "DISCORD_BOT_TOKEN is required: the bot creates the Discord channels and receives commands.",
-      "DISCORD_ALLOWED_USER_IDS is required: without it, anyone on the server could control the bot and spend your API quota.",
     ]);
   });
 
@@ -93,13 +91,9 @@ describe("loadConfig", () => {
     assert.equal(config.language, "English");
   });
 
-  it("reads the allowed user ids and the optional server id of the bot", () => {
-    const config = loadConfig({ ...BASE_ENV, DISCORD_ALLOWED_USER_IDS: " 12, 34 ,,", DISCORD_GUILD_ID: " 99 " });
-    assert.deepEqual(config.channels[0]?.settings, {
-      botToken: "bot-token",
-      allowedUserIds: ["12", "34"],
-      guildId: "99",
-    });
+  it("reads the optional server id of the bot", () => {
+    const config = loadConfig({ ...BASE_ENV, DISCORD_GUILD_ID: " 99 " });
+    assert.deepEqual(config.channels[0]?.settings, { botToken: "bot-token", guildId: "99" });
   });
 
   it("rejects invalid numbers and schedules", () => {

@@ -40,7 +40,6 @@ Fill in `.env` first:
 | `LLM_API_KEY` | API key of that provider |
 | `CHANNELS` | `discord` |
 | `DISCORD_BOT_TOKEN` | token of the Discord bot (see below) |
-| `DISCORD_ALLOWED_USER_IDS` | your Discord user ID |
 | `DISCORD_GUILD_ID` | optional, only if the bot is on several servers |
 
 Invalid or missing values are all listed at startup: `docker compose logs techpulse`.
@@ -53,7 +52,10 @@ The bot creates its channels itself: no webhook to copy.
 1. On the [Discord developer portal](https://discord.com/developers/applications): New Application › **Bot** › Reset Token.
 2. **OAuth2 › URL Generator**: check `bot` and `applications.commands`, then the bot permissions *View Channels*,
    *Send Messages*, *Manage Channels*, *Manage Webhooks* and *Manage Roles*. Open the URL and invite the bot.
-3. Your user ID: Discord settings › Advanced › Developer Mode, then right-click your name › Copy User ID.
+
+Only server administrators can use the commands by default. To let a role use them, go to
+Server Settings › **Integrations** › TechPulse and allow that role on `/topic` and `/run`.
+Never allow `@everyone`: anyone on the server could add topics and spend your API quota.
 
 ## Usage
 
@@ -185,6 +187,6 @@ npm install scripts are disabled and new releases are only installed after 7 day
 ## Troubleshooting
 
 - **Slash commands missing**: invite the bot with the `applications.commands` scope.
-- **"You are not allowed to control TechPulse."**: add your ID to `DISCORD_ALLOWED_USER_IDS`.
+- **Commands not visible for a member**: allow their role in Server Settings › Integrations › TechPulse.
 - **Empty digest**: no active topic, or lower `DIGEST_SCORE_THRESHOLD`.
 - **`Gemini rate limit reached: ... limit: 0`**: the model is not in the free tier, use a Flash model.

@@ -17,7 +17,6 @@ import { postWebhook } from "./webhook.js";
 
 export interface DiscordSettings {
   botToken: string;
-  allowedUserIds: readonly string[];
   guildId: string | undefined;
 }
 
@@ -72,9 +71,8 @@ export class DiscordChannel implements Channel {
   }
 
   async listen(handler: CommandHandler): Promise<void> {
-    const { botToken, allowedUserIds } = this.settings;
+    const { botToken } = this.settings;
     const { log } = this;
-    const allowedUsers = new Set(allowedUserIds);
     const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
     const registerCommands = async (guild: Guild): Promise<void> => {
@@ -92,7 +90,7 @@ export class DiscordChannel implements Channel {
     });
     client.on(Events.GuildCreate, (guild) => void registerCommands(guild));
     client.on(Events.InteractionCreate, (interaction) => {
-      if (interaction.isChatInputCommand()) void this.handleInteraction(interaction, handler, allowedUsers);
+      if (interaction.isChatInputCommand()) void this.handleInteraction(interaction, handler);
     });
     client.on(Events.Error, (error) => log.error(`Discord client error: ${error.message}`));
 
@@ -110,21 +108,9 @@ export class DiscordChannel implements Channel {
     this.client = null;
   }
 
-  private async handleInteraction(
-    interaction: ChatInputCommandInteraction,
-    handler: CommandHandler,
-    allowedUsers: ReadonlySet<string>,
-  ): Promise<void> {
+  private async handleInteraction(interaction: ChatInputCommandInteraction, handler: CommandHandler): Promise<void> {
     const { log } = this;
     try {
-      if (!allowedUsers.has(interaction.user.id)) {
-        await interaction.reply({
-          content: "You are not allowed to control TechPulse.",
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-
       const command = toCommand({
         commandName: interaction.commandName,
         subcommand: interaction.options.getSubcommand(false),

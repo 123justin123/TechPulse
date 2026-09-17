@@ -37,7 +37,7 @@ describe("DiscordChannel", () => {
       const path = `${group.topic.toLowerCase()}-webhook`;
       await routes.set(group.topicId, JSON.stringify({ channelId: path, webhookUrl: `${server.url}/${path}` }));
     }
-    return new DiscordChannel({ botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined }, log, routes);
+    return new DiscordChannel({ botToken: "bot-token", guildId: undefined }, log, routes);
   };
 
   it("posts each topic to its own channel without allowing mentions", async () => {
@@ -101,11 +101,7 @@ describe("DiscordChannel", () => {
   it("skips channel sync while the bot is not logged in", async () => {
     const db = memoryDb();
     const routes = createTopicRoutes(db, "discord");
-    const channel = new DiscordChannel(
-      { botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined },
-      recordingLog().log,
-      routes,
-    );
+    const channel = new DiscordChannel({ botToken: "bot-token", guildId: undefined }, recordingLog().log, routes);
     await channel.syncTopics([{ id: 1, label: "Finance", description: "Definition.", active: true }]);
     assert.equal(await routes.get(1), undefined);
   });

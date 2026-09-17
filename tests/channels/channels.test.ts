@@ -108,7 +108,7 @@ describe("createChannel", () => {
     const channel = createChannel(
       {
         name: "discord",
-        settings: { botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined },
+        settings: { botToken: "bot-token", guildId: undefined },
       },
       { db: memoryDb(), log: recordingLog().log },
     );
