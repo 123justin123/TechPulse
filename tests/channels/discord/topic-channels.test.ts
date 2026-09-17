@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { TopicState } from "../src/channels/channel.js";
+import type { TopicState } from "../../../src/channels/channel.js";
 import {
   ARCHIVE_CATEGORY,
   channelNameOf,
@@ -10,9 +10,9 @@ import {
   readRoute,
   syncTopicChannels,
   TOPIC_CATEGORY,
-} from "../src/channels/discord-topics.js";
-import { createChannelRoutes, topicRoute } from "../src/channels/routes.js";
-import { insertTopic, memoryDb, recordingLog } from "./helpers.js";
+} from "../../../src/channels/discord/topic-channels.js";
+import { createChannelRoutes, topicRoute } from "../../../src/channels/routes.js";
+import { insertTopic, memoryDb, recordingLog } from "../../support/helpers.js";
 
 interface FakeCategory {
   id: string;

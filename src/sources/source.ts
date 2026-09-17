@@ -1,4 +1,4 @@
-import type { Logger } from "../logger.js";
+import type { Logger } from "../lib/logger.js";
 
 const DAY_MS = 86_400_000;
 

@@ -1,6 +1,6 @@
 import { sql } from "kysely";
 import type { Channel, Digest, DigestGroup } from "./channels/channel.js";
-import type { Db } from "./db.js";
+import type { Db } from "./db/schema.js";
 
 export interface DigestSettings {
   threshold: number;

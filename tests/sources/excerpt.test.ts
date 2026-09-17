@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cleanExcerpt, htmlToText } from "../src/sources/excerpt.js";
+import { cleanExcerpt, htmlToText } from "../../src/sources/excerpt.js";
 
 describe("htmlToText", () => {
   it("keeps block boundaries, decodes entities and drops scripts", () => {

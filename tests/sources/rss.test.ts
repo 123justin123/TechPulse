@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { HttpError } from "../src/http.js";
-import { createRssSource } from "../src/sources/rss.js";
-import { daysBefore } from "../src/sources/source.js";
-import { fakeHttp, NOW, recordingLog } from "./helpers.js";
+import { HttpError } from "../../src/lib/http.js";
+import { createRssSource } from "../../src/sources/rss.js";
+import { daysBefore } from "../../src/sources/source.js";
+import { fakeHttp, NOW, recordingLog } from "../support/helpers.js";
 
 const SINCE = daysBefore(NOW, 7);
 

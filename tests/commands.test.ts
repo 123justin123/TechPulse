@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createCommandHandler, type JobName } from "../src/commands.js";
 import { LlmError } from "../src/llm/provider.js";
-import { fakeLlm, insertItems, memoryDb, statusCounts, TEST_LANGUAGE } from "./helpers.js";
+import { fakeLlm, insertItems, memoryDb, statusCounts, TEST_LANGUAGE } from "./support/helpers.js";
 
 const FINANCE = { label: "Finance", description: "Financial markets and fintech." };
 

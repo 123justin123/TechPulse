@@ -134,32 +134,33 @@ deploy. Back up the `techpulse-data` volume with *Volume Backups*.
 
 ```
 src/
-  main.ts        builds every dependency and starts the jobs
-  config.ts      reads and validates the environment
-  db.ts          typed schema and SQLite connection
-  migrations/    Kysely schema migrations, applied at startup
-  scheduler.ts   cron jobs
-  topics.ts      topic management
-  scoring.ts     LLM scoring
-  digest.ts      digest building
-  commands.ts    channel-agnostic commands
-  sources/       RSS collection, excerpt cleaning
-  llm/           Anthropic, OpenAI, Gemini behind one interface
-  channels/      Discord (more to come) behind one interface
+  main.ts              builds every dependency and starts the jobs
+  topics.ts            topic management
+  scoring.ts           LLM scoring
+  digest.ts            digest building
+  commands.ts          channel-agnostic commands
+  config/              environment reading and validation
+  db/                  typed schema, SQLite connection, migrations
+  lib/                 logger, HTTP client, scheduler
+  sources/             RSS collection, excerpt cleaning
+  llm/                 Anthropic, OpenAI, Gemini behind one interface
+  channels/            channel contract and registry
+    discord/           bot, slash commands, rendering, webhooks, topic channels
+tests/                 same tree as src/, plus shared fakes in support/
 ```
 
 Dependencies are built once in `main.ts` and passed down, so every module is tested with
 fakes. `llm/` and `channels/` each expose one interface: adding Mistral or Telegram means
-one new file registered in that folder's `index.ts`.
+one new file or folder registered in that folder's `index.ts`.
 
 Topic channels are reconciled rather than driven by events: `syncTopics` compares the topics
 with what the channel already has and fixes the difference, so it can run at any time.
 
 Queries go through [Kysely](https://kysely.dev), a type-safe query builder (not an ORM) over
-SQLite: the `Database` interface in `db.ts` describes every table, so a renamed or dropped column
+SQLite: the `Database` interface in `db/schema.ts` describes every table, so a renamed or dropped column
 breaks the build instead of a query at runtime. The schema evolves through migrations in
-`src/migrations/`: add a `0002_add_something.ts` exporting `up`, register it in
-`src/migrations/index.ts` and update `Database`. They run at startup, each in its own transaction,
+`src/db/migrations/`: add a `0002_add_something.ts` exporting `up`, register it in
+`src/db/migrations/index.ts` and update `Database`. They run at startup, each in its own transaction,
 and are recorded in `kysely_migration`; startup stops if the database knows a migration the code
 does not.
 

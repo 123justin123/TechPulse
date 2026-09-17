@@ -1,18 +1,19 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import SQLite from "better-sqlite3";
-import type { Channel, Digest } from "../src/channels/channel.js";
-import { connect, type Db, type ItemStatus } from "../src/db.js";
-import type { Http, RequestOptions } from "../src/http.js";
+import type { Channel, Digest } from "../../src/channels/channel.js";
+import { connect } from "../../src/db/index.js";
+import { migrate } from "../../src/db/migrations/index.js";
+import type { Db, ItemStatus } from "../../src/db/schema.js";
+import type { Http, RequestOptions } from "../../src/lib/http.js";
+import { createLogger, type Logger } from "../../src/lib/logger.js";
 import {
   type CompleteJsonParams,
   isMalformedOutput,
   LlmError,
   type LlmProvider,
   type ModelChoice,
-} from "../src/llm/provider.js";
-import { createLogger, type Logger } from "../src/logger.js";
-import { migrate } from "../src/migrations/index.js";
+} from "../../src/llm/provider.js";
 
 export const NOW = new Date("2026-09-12T12:00:00Z");
 export const TEST_LANGUAGE = "English";

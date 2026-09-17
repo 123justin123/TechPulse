@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import SQLite from "better-sqlite3";
 import { type Kysely, sql } from "kysely";
-import { connect, type Db } from "../src/db.js";
-import { MIGRATIONS, MigrationError, migrate } from "../src/migrations/index.js";
+import { connect } from "../../src/db/index.js";
+import { MIGRATIONS, MigrationError, migrate } from "../../src/db/migrations/index.js";
+import type { Db } from "../../src/db/schema.js";
 
 const emptyDb = (): Db => connect(new SQLite(":memory:"));
 

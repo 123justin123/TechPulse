@@ -1,7 +1,7 @@
-import { CHANNEL_NAMES, type ChannelConfig, type ChannelName, readChannelConfig } from "./channels/index.js";
+import { CHANNEL_NAMES, type ChannelConfig, type ChannelName, readChannelConfig } from "../channels/index.js";
+import { LOG_LEVELS, type LogLevel } from "../lib/logger.js";
+import { PROVIDER_NAMES, type ProviderName } from "../llm/provider.js";
 import { createEnvReader, type Environment, type EnvReader } from "./env.js";
-import { PROVIDER_NAMES, type ProviderName } from "./llm/provider.js";
-import { LOG_LEVELS, type LogLevel } from "./logger.js";
 
 export interface Config {
   logLevel: LogLevel;

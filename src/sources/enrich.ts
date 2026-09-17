@@ -1,6 +1,6 @@
 import { Parser } from "htmlparser2";
-import type { Http } from "../http.js";
-import { errorMessage, type Logger } from "../logger.js";
+import type { Http } from "../lib/http.js";
+import { errorMessage, type Logger } from "../lib/logger.js";
 import { cleanExcerpt } from "./excerpt.js";
 import { type CollectedItem, mapWithConcurrency } from "./source.js";
 

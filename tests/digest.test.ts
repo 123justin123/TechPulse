@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { sendDigest } from "../src/digest.js";
-import { fakeChannel, insertItems, insertTopic, memoryDb, NOW, statusCounts } from "./helpers.js";
+import { fakeChannel, insertItems, insertTopic, memoryDb, NOW, statusCounts } from "./support/helpers.js";
 
 const SETTINGS = { threshold: 6, maxItems: 3 };
 

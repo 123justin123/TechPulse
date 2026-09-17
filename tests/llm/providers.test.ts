@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { z } from "zod";
-import { AnthropicProvider } from "../src/llm/anthropic.js";
-import { GeminiProvider } from "../src/llm/gemini.js";
-import { OpenAiProvider } from "../src/llm/openai.js";
-import { LlmError, type LlmErrorKind, type LlmProvider, type ProviderOptions } from "../src/llm/provider.js";
-import { type RecordedRequest, type ServerReply, startServer } from "./helpers.js";
+import { AnthropicProvider } from "../../src/llm/anthropic.js";
+import { GeminiProvider } from "../../src/llm/gemini.js";
+import { OpenAiProvider } from "../../src/llm/openai.js";
+import { LlmError, type LlmErrorKind, type LlmProvider, type ProviderOptions } from "../../src/llm/provider.js";
+import { type RecordedRequest, type ServerReply, startServer } from "../support/helpers.js";
 
 type Mode = "ok" | "refusal" | "invalid_json" | "server_error" | "not_found" | "unauthorized";
 

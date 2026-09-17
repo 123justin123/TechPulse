@@ -1,6 +1,6 @@
 import { type Migration, Migrator } from "kysely/migration";
-import type { Db } from "../db.js";
-import { errorMessage } from "../logger.js";
+import { errorMessage } from "../../lib/logger.js";
+import type { Db } from "../schema.js";
 import * as initial from "./0001_initial.js";
 
 export const MIGRATIONS: Readonly<Record<string, Migration>> = {

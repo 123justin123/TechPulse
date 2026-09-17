@@ -1,6 +1,6 @@
 import type { CommandHandler } from "../commands.js";
-import type { EnvReader } from "../env.js";
-import type { Logger } from "../logger.js";
+import type { EnvReader } from "../config/env.js";
+import type { Logger } from "../lib/logger.js";
 import type { Topic } from "../topics.js";
 import type { ChannelRoutes } from "./routes.js";
 

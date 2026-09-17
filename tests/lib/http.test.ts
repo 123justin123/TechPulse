@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createHttp, HttpError, NetworkError } from "../src/http.js";
+import { createHttp, HttpError, NetworkError } from "../../src/lib/http.js";
 
 function fetchReturning(responses: (() => Response | Promise<Response>)[]): {
   fetchImpl: typeof fetch;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { addTopics, listTopics, removeTopic } from "../src/topics.js";
-import { fakeLlm, memoryDb, TEST_LANGUAGE } from "./helpers.js";
+import { fakeLlm, memoryDb, TEST_LANGUAGE } from "./support/helpers.js";
 
 const FINANCE = {
   label: "Finance",

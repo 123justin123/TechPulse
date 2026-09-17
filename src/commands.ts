@@ -1,6 +1,6 @@
-import type { Db } from "./db.js";
+import type { Db } from "./db/schema.js";
+import { errorMessage } from "./lib/logger.js";
 import type { LlmProvider } from "./llm/provider.js";
-import { errorMessage } from "./logger.js";
 import { requeueRecentItems } from "./scoring.js";
 import { addTopics, listTopics, removeTopic } from "./topics.js";
 

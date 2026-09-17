@@ -3,9 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { collectAll, loadSources } from "../src/sources/index.js";
-import type { CollectedItem, Source } from "../src/sources/source.js";
-import { fakeHttp, memoryDb, NOW, recordingLog } from "./helpers.js";
+import { collectAll, loadSources } from "../../src/sources/index.js";
+import type { CollectedItem, Source } from "../../src/sources/source.js";
+import { fakeHttp, memoryDb, NOW, recordingLog } from "../support/helpers.js";
 
 function source(name: string, collect: () => Promise<CollectedItem[]>): Source {
   return { name, collect };

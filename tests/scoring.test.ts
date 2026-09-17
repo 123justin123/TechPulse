@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { sql } from "kysely";
-import type { Db, ItemStatus } from "../src/db.js";
+import type { Db, ItemStatus } from "../src/db/schema.js";
 import { LlmError, type LlmProvider } from "../src/llm/provider.js";
 import { requeueRecentItems, type ScoringSettings, scorePending } from "../src/scoring.js";
 import {
@@ -14,7 +14,7 @@ import {
   statusCounts,
   TEST_LANGUAGE,
   totalAttempts,
-} from "./helpers.js";
+} from "./support/helpers.js";
 
 const SETTINGS: ScoringSettings = { batchSize: 8, maxAttempts: 3, maxItemsPerRun: 60, rescoreWindowHours: 48 };
 

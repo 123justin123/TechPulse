@@ -7,9 +7,9 @@ import {
   RESTJSONErrorCodes,
   type TextChannel,
 } from "discord.js";
-import { errorMessage, type Logger } from "../logger.js";
-import type { TopicState } from "./channel.js";
-import { type ChannelRoutes, topicRoute } from "./routes.js";
+import { errorMessage, type Logger } from "../../lib/logger.js";
+import type { TopicState } from "../channel.js";
+import { type ChannelRoutes, topicRoute } from "../routes.js";
 
 export const TOPIC_CATEGORY = "TechPulse";
 export const ARCHIVE_CATEGORY = "TechPulse archive";

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createScheduler, type Job } from "../src/scheduler.js";
-import { recordingLog } from "./helpers.js";
+import { createScheduler, type Job } from "../../src/lib/scheduler.js";
+import { recordingLog } from "../support/helpers.js";
 
 const NEVER = "0 0 1 1 *";
 

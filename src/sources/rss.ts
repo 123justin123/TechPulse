@@ -1,6 +1,6 @@
 import Parser from "rss-parser";
-import type { Http } from "../http.js";
-import { errorMessage } from "../logger.js";
+import type { Http } from "../lib/http.js";
+import { errorMessage } from "../lib/logger.js";
 import { htmlToText } from "./excerpt.js";
 import { type CollectedItem, isFresh, mapWithConcurrency, type Source } from "./source.js";
 

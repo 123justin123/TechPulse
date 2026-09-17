@@ -1,9 +1,9 @@
 import type { CommandHandler } from "../commands.js";
-import type { Db } from "../db.js";
-import type { EnvReader } from "../env.js";
-import { errorMessage, type Logger } from "../logger.js";
+import type { EnvReader } from "../config/env.js";
+import type { Db } from "../db/schema.js";
+import { errorMessage, type Logger } from "../lib/logger.js";
 import type { Channel, ChannelDefinition, Digest, TopicState } from "./channel.js";
-import { discordChannel } from "./discord.js";
+import { discordChannel } from "./discord/index.js";
 import { createChannelRoutes } from "./routes.js";
 
 const CHANNEL_DEFINITIONS = {

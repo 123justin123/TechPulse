@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Db } from "./db.js";
+import type { Db } from "./db/schema.js";
 import type { LlmProvider } from "./llm/provider.js";
 
 export interface Topic {

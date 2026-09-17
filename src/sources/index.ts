@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import { z } from "zod";
-import type { Db } from "../db.js";
-import type { Http } from "../http.js";
-import { errorMessage, type Logger } from "../logger.js";
+import type { Db } from "../db/schema.js";
+import type { Http } from "../lib/http.js";
+import { errorMessage, type Logger } from "../lib/logger.js";
 import { enrichShortExcerpts, type PageDescriber } from "./enrich.js";
 import { cleanExcerpt } from "./excerpt.js";
 import { createRssSource } from "./rss.js";

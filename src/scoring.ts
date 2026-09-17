@@ -1,8 +1,8 @@
 import { sql } from "kysely";
 import { z } from "zod";
-import type { Db, ItemStatus } from "./db.js";
+import type { Db, ItemStatus } from "./db/schema.js";
+import { errorMessage, type Logger } from "./lib/logger.js";
 import { LlmError, type LlmProvider } from "./llm/provider.js";
-import { errorMessage, type Logger } from "./logger.js";
 import { listTopics, type Topic } from "./topics.js";
 
 export interface ScoringSettings {

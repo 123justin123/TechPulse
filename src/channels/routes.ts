@@ -1,4 +1,4 @@
-import type { Db } from "../db.js";
+import type { Db } from "../db/schema.js";
 
 export function topicRoute(topicId: number): string {
   return `topic:${topicId}`;

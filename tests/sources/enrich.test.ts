@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { enrichShortExcerpts, extractMetaDescription } from "../src/sources/enrich.js";
-import type { CollectedItem } from "../src/sources/source.js";
-import { recordingLog } from "./helpers.js";
+import { enrichShortExcerpts, extractMetaDescription } from "../../src/sources/enrich.js";
+import type { CollectedItem } from "../../src/sources/source.js";
+import { recordingLog } from "../support/helpers.js";
 
 const LONG_DESCRIPTION = "A page description long enough to be useful. ".repeat(6).trim();
 

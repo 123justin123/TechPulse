@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Channel, Digest, TopicState } from "../src/channels/channel.js";
-import { combineChannels, createChannel } from "../src/channels/index.js";
-import { createChannelRoutes, topicRoute } from "../src/channels/routes.js";
-import type { CommandHandler } from "../src/commands.js";
-import { fakeChannel, memoryDb, recordingLog } from "./helpers.js";
+import type { Channel, Digest, TopicState } from "../../src/channels/channel.js";
+import { combineChannels, createChannel } from "../../src/channels/index.js";
+import { createChannelRoutes, topicRoute } from "../../src/channels/routes.js";
+import type { CommandHandler } from "../../src/commands.js";
+import { fakeChannel, memoryDb, recordingLog } from "../support/helpers.js";
 
 const DIGEST: Digest = { date: "2026-09-12", threshold: 6, groups: [] };
 const FINANCE: TopicState = { id: 1, label: "Finance", description: "Definition.", active: true };

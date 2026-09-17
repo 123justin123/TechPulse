@@ -1,4 +1,4 @@
-import type { Config } from "../config.js";
+import type { Config } from "../config/config.js";
 import { AnthropicProvider } from "./anthropic.js";
 import { GeminiProvider } from "./gemini.js";
 import { OpenAiProvider } from "./openai.js";
