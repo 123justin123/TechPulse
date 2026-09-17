@@ -39,21 +39,20 @@ Fill in `.env` first:
 | `LLM_PROVIDER` | `anthropic`, `openai` or `gemini` |
 | `LLM_API_KEY` | API key of that provider |
 | `CHANNELS` | `discord` |
-| `DISCORD_WEBHOOK_URL` | Channel settings › Integrations › Webhooks › New Webhook › Copy URL |
-| `DISCORD_BOT_TOKEN` | optional, to use the commands (see below) |
-| `DISCORD_ALLOWED_USER_IDS` | your Discord user ID, required with a bot |
+| `DISCORD_BOT_TOKEN` | token of the Discord bot (see below) |
+| `DISCORD_ALLOWED_USER_IDS` | your Discord user ID |
+| `DISCORD_GUILD_ID` | optional, only if the bot is on several servers |
 
 Invalid or missing values are all listed at startup: `docker compose logs techpulse`.
 Articles and topics are stored in the `techpulse-data` Docker volume.
 
-### Discord bot (optional)
+### Discord bot
 
-Without a bot, the digest is still sent; only the commands and the topic channels are disabled.
+The bot creates its channels itself: no webhook to copy.
 
 1. On the [Discord developer portal](https://discord.com/developers/applications): New Application › **Bot** › Reset Token.
 2. **OAuth2 › URL Generator**: check `bot` and `applications.commands`, then the bot permissions *View Channels*,
-   *Send Messages*, *Manage Channels*, *Manage Webhooks* and *Manage Roles*. Open the URL and invite the bot
-   to the server of `DISCORD_WEBHOOK_URL`.
+   *Send Messages*, *Manage Channels*, *Manage Webhooks* and *Manage Roles*. Open the URL and invite the bot.
 3. Your user ID: Discord settings › Advanced › Developer Mode, then right-click your name › Copy User ID.
 
 ## Usage
@@ -70,10 +69,10 @@ Each channel exposes the same commands in its own syntax. On Discord, they are s
 Example: `/topic add phrase: Security news: vulnerabilities, attacks and data breaches`.
 The LLM splits the sentence into distinct topics, each with a label and a precise definition used for scoring.
 
-### Topic channels
+### Channels
 
-With a bot, each topic gets its own channel in a **TechPulse** category, created with a webhook
-as soon as the topic is added. The full digest still goes to `DISCORD_WEBHOOK_URL`, where an
+The bot creates a **TechPulse** category with a `#digest` channel, then one channel per topic as
+soon as the topic is added, each with its own webhook. `#digest` receives the full digest, where an
 article appears once under its main topic; each topic channel receives every article of that
 topic, including those where it is a secondary topic.
 

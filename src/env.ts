@@ -9,7 +9,6 @@ export interface EnvReader {
   oneOf<T extends string>(name: string, allowed: readonly T[], fallback: T): T | undefined;
   integer(name: string, fallback: number, min: number, max?: number): number;
   list(name: string): string[];
-  url(name: string, reason: string): string;
   cron(name: string, fallback: string): string;
 }
 
@@ -51,12 +50,6 @@ export function createEnvReader(env: Environment): EnvReader {
         .split(",")
         .map((value) => value.trim())
         .filter(Boolean);
-    },
-
-    url(name, reason) {
-      const value = required(name, reason);
-      if (value && !URL.canParse(value)) problems.push(`${name} is not a valid URL.`);
-      return value;
     },
 
     cron(name, fallback) {

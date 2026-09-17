@@ -5,7 +5,8 @@ import type { Environment } from "../src/env.js";
 
 const BASE_ENV = {
   CHANNELS: "discord",
-  DISCORD_WEBHOOK_URL: "https://discord.com/api/webhooks/1/secret",
+  DISCORD_BOT_TOKEN: "bot-token",
+  DISCORD_ALLOWED_USER_IDS: "12",
   LLM_API_KEY: "sk-ant-test",
 };
 
@@ -32,7 +33,7 @@ describe("loadConfig", () => {
     assert.deepEqual(config.channels, [
       {
         name: "discord",
-        settings: { webhookUrl: BASE_ENV.DISCORD_WEBHOOK_URL, botToken: undefined, allowedUserIds: [] },
+        settings: { botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined },
       },
     ]);
   });
@@ -46,7 +47,10 @@ describe("loadConfig", () => {
 
   it("reads the settings of each selected channel only", () => {
     const problems = problemsOf({ LLM_API_KEY: "sk-ant-test", CHANNELS: "discord" });
-    assert.deepEqual(problems, ["DISCORD_WEBHOOK_URL is required: the Discord channel posts the digest there."]);
+    assert.deepEqual(problems, [
+      "DISCORD_BOT_TOKEN is required: the bot creates the Discord channels and receives commands.",
+      "DISCORD_ALLOWED_USER_IDS is required: without it, anyone on the server could control the bot and spend your API quota.",
+    ]);
   });
 
   it("rejects unknown channels and ignores duplicates", () => {
@@ -89,27 +93,26 @@ describe("loadConfig", () => {
     assert.equal(config.language, "English");
   });
 
-  it("requires allowed user ids as soon as a bot is configured", () => {
-    const problems = problemsOf({ ...BASE_ENV, DISCORD_BOT_TOKEN: "bot-token" });
-    assert.match(problems[0] ?? "", /DISCORD_ALLOWED_USER_IDS is required/);
-
-    const config = loadConfig({ ...BASE_ENV, DISCORD_BOT_TOKEN: "bot-token", DISCORD_ALLOWED_USER_IDS: " 12, 34 ,," });
-    assert.deepEqual(config.channels[0]?.settings.allowedUserIds, ["12", "34"]);
+  it("reads the allowed user ids and the optional server id of the bot", () => {
+    const config = loadConfig({ ...BASE_ENV, DISCORD_ALLOWED_USER_IDS: " 12, 34 ,,", DISCORD_GUILD_ID: " 99 " });
+    assert.deepEqual(config.channels[0]?.settings, {
+      botToken: "bot-token",
+      allowedUserIds: ["12", "34"],
+      guildId: "99",
+    });
   });
 
-  it("rejects invalid numbers, schedules and URLs", () => {
+  it("rejects invalid numbers and schedules", () => {
     const problems = problemsOf({
       ...BASE_ENV,
       AI_BATCH_SIZE: "many",
       DIGEST_SCORE_THRESHOLD: "11",
       CRON_DIGEST: "every morning",
-      DISCORD_WEBHOOK_URL: "not a url",
     });
     const report = problems.join("\n");
-    assert.equal(problems.length, 4);
+    assert.equal(problems.length, 3);
     assert.match(report, /AI_BATCH_SIZE must be an integer greater than or equal to 1/);
     assert.match(report, /DIGEST_SCORE_THRESHOLD must be an integer between 0 and 10/);
     assert.match(report, /CRON_DIGEST is not a valid cron expression/);
-    assert.match(report, /DISCORD_WEBHOOK_URL is not a valid URL/);
   });
 });

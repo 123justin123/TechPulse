@@ -10,7 +10,7 @@ import {
   toCommand,
   type WebhookPayload,
 } from "../src/channels/discord.js";
-import { createTopicRoutes } from "../src/channels/routes.js";
+import { createChannelRoutes, DIGEST_ROUTE, topicRoute } from "../src/channels/routes.js";
 import { JOB_NAMES } from "../src/commands.js";
 import { insertTopic, memoryDb, recordingLog, startServer, type TestServer } from "./helpers.js";
 
@@ -195,12 +195,13 @@ describe("DiscordChannel", () => {
     await server.close();
   });
 
-  const createChannel = ({ db = memoryDb(), log = recordingLog().log } = {}) =>
-    new DiscordChannel(
-      { webhookUrl: `${server.url}/webhook`, botToken: undefined, allowedUserIds: [] },
-      log,
-      createTopicRoutes(db, "discord"),
-    );
+  const routeTo = (path: string) => JSON.stringify({ channelId: path, webhookUrl: `${server.url}/${path}` });
+
+  const createChannel = ({ db = memoryDb(), log = recordingLog().log, withDigestChannel = true } = {}) => {
+    const routes = createChannelRoutes(db, "discord");
+    if (withDigestChannel) routes.set(DIGEST_ROUTE, routeTo("webhook"));
+    return new DiscordChannel({ botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined }, log, routes);
+  };
 
   it("posts each message to the webhook without allowing mentions", async () => {
     server.requests.length = 0;
@@ -216,10 +217,7 @@ describe("DiscordChannel", () => {
     const db = memoryDb();
     const finance = insertTopic(db, "Finance");
     const linux = insertTopic(db, "Linux");
-    createTopicRoutes(db, "discord").set(
-      linux,
-      JSON.stringify({ channelId: "42", webhookUrl: `${server.url}/linux-webhook` }),
-    );
+    createChannelRoutes(db, "discord").set(topicRoute(linux), routeTo("linux-webhook"));
     const item = itemOf({ topics: ["Finance", "Linux"] });
 
     await createChannel({ db }).send(
@@ -240,11 +238,11 @@ describe("DiscordChannel", () => {
     server.requests.length = 0;
     failingPath = "/broken-webhook";
     const db = memoryDb();
-    const routes = createTopicRoutes(db, "discord");
+    const routes = createChannelRoutes(db, "discord");
     const broken = insertTopic(db, "Broken");
     const linux = insertTopic(db, "Linux");
-    routes.set(broken, JSON.stringify({ channelId: "1", webhookUrl: `${server.url}/broken-webhook` }));
-    routes.set(linux, JSON.stringify({ channelId: "2", webhookUrl: `${server.url}/linux-webhook` }));
+    routes.set(topicRoute(broken), routeTo("broken-webhook"));
+    routes.set(topicRoute(linux), routeTo("linux-webhook"));
     const { log, lines } = recordingLog();
 
     await createChannel({ db, log }).send(
@@ -280,12 +278,20 @@ describe("DiscordChannel", () => {
     responseStatus = 204;
   });
 
-  it("starts without commands and without topic channels when no bot is configured", async () => {
-    const { log, lines } = recordingLog();
-    const channel = createChannel({ log });
-    await channel.listen(async () => [{ body: "never called" }]);
-    await channel.syncTopics([{ id: 1, label: "Finance", description: "Definition.", active: true }]);
-    await channel.close();
-    assert.ok(lines.some((line) => line.includes("DISCORD_BOT_TOKEN is not set")));
+  it("refuses to send the digest before the bot has created the digest channel", async () => {
+    server.requests.length = 0;
+    await assert.rejects(
+      createChannel({ withDigestChannel: false }).send(digestOf([])),
+      /The #digest channel does not exist yet/,
+    );
+    assert.equal(server.requests.length, 0);
+  });
+
+  it("skips channel sync while the bot is not logged in", async () => {
+    const db = memoryDb();
+    await createChannel({ db, withDigestChannel: false }).syncTopics([
+      { id: 1, label: "Finance", description: "Definition.", active: true },
+    ]);
+    assert.equal(createChannelRoutes(db, "discord").get(DIGEST_ROUTE), undefined);
   });
 });

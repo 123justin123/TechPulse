@@ -21,7 +21,7 @@ import { sleep } from "../http.js";
 import { errorMessage, type Logger } from "../logger.js";
 import type { Channel, ChannelDefinition, Digest, DigestGroup, TopicState } from "./channel.js";
 import { createGuildApi, type DiscordGuildApi, readRoute, syncTopicChannels } from "./discord-topics.js";
-import type { TopicRoutes } from "./routes.js";
+import { type ChannelRoutes, DIGEST_ROUTE, topicRoute } from "./routes.js";
 
 const MAX_MESSAGE_LENGTH = 1900;
 const MAX_EMBEDS_PER_MESSAGE = 10;
@@ -115,23 +115,22 @@ export interface WebhookPayload {
 }
 
 export interface DiscordSettings {
-  webhookUrl: string;
-  botToken: string | undefined;
+  botToken: string;
   allowedUserIds: readonly string[];
+  guildId: string | undefined;
 }
 
 export const discordChannel: ChannelDefinition<DiscordSettings> = {
   readSettings(env: EnvReader): DiscordSettings {
-    const webhookUrl = env.url("DISCORD_WEBHOOK_URL", "the Discord channel posts the digest there");
-    const botToken = env.optional("DISCORD_BOT_TOKEN");
+    const botToken = env.required("DISCORD_BOT_TOKEN", "the bot creates the Discord channels and receives commands");
     const allowedUserIds = env.list("DISCORD_ALLOWED_USER_IDS");
-    if (botToken && allowedUserIds.length === 0) {
+    if (allowedUserIds.length === 0) {
       env.problems.push(
-        "DISCORD_ALLOWED_USER_IDS is required when DISCORD_BOT_TOKEN is set: without it, " +
-          "anyone on the server could control the bot and spend your API quota.",
+        "DISCORD_ALLOWED_USER_IDS is required: without it, anyone on the server could control the bot " +
+          "and spend your API quota.",
       );
     }
-    return { webhookUrl, botToken, allowedUserIds };
+    return { botToken, allowedUserIds, guildId: env.optional("DISCORD_GUILD_ID") };
   },
 
   create: (settings, { log, routes }) => new DiscordChannel(settings, log, routes),
@@ -146,16 +145,22 @@ export class DiscordChannel implements Channel {
   constructor(
     private readonly settings: DiscordSettings,
     private readonly log: Logger,
-    private readonly routes: TopicRoutes,
+    private readonly routes: ChannelRoutes,
   ) {}
 
   async send(digest: Digest): Promise<void> {
+    const digestRoute = readRoute(this.routes.get(DIGEST_ROUTE));
+    if (!digestRoute) {
+      throw new Error(
+        "The #digest channel does not exist yet: check that the bot is connected and allowed to create it.",
+      );
+    }
     for (const payload of renderDigest(digest)) {
-      await postWebhook(this.settings.webhookUrl, payload, this.log);
+      await postWebhook(digestRoute.webhookUrl, payload, this.log);
     }
 
     for (const group of digest.topicGroups) {
-      const route = group.topicId === null ? undefined : readRoute(this.routes.get(group.topicId));
+      const route = group.topicId === null ? undefined : readRoute(this.routes.get(topicRoute(group.topicId)));
       if (!route) continue;
       try {
         for (const payload of renderTopicDigest(digest, group)) {
@@ -176,22 +181,17 @@ export class DiscordChannel implements Channel {
     const { client, log } = this;
     if (!client) return;
     try {
-      this.guildApi ??= createGuildApi(client, this.settings.webhookUrl, log);
+      this.guildApi ??= createGuildApi(client, this.settings.guildId, log);
       await syncTopicChannels({ api: await this.guildApi, routes: this.routes, topics, log });
     } catch (error) {
       this.guildApi = undefined;
-      log.error(`Topic channels could not be synced: ${errorMessage(error)}`);
+      log.error(`Discord channels could not be synced: ${errorMessage(error)}`);
     }
   }
 
   async listen(handler: CommandHandler): Promise<void> {
     const { botToken, allowedUserIds } = this.settings;
     const { log } = this;
-    if (!botToken) {
-      log.warn("DISCORD_BOT_TOKEN is not set: /topic and /run are disabled, the digest is still sent.");
-      return;
-    }
-
     const allowedUsers = new Set(allowedUserIds);
     const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -218,7 +218,7 @@ export class DiscordChannel implements Channel {
       await client.login(botToken);
       this.client = client;
     } catch (error) {
-      log.error(`Bot login failed, commands disabled: ${errorMessage(error)}`);
+      log.error(`Bot login failed, commands and channels are disabled: ${errorMessage(error)}`);
       await client.destroy();
     }
   }

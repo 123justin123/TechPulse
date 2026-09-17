@@ -87,11 +87,11 @@ const MIGRATIONS: readonly string[] = [
   DROP TABLE legacy_item_topics;
   `,
   `
-  CREATE TABLE topic_routes (
-    channel  TEXT    NOT NULL,
-    topic_id INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-    target   TEXT    NOT NULL,
-    PRIMARY KEY (channel, topic_id)
+  CREATE TABLE channel_routes (
+    channel TEXT NOT NULL,
+    route   TEXT NOT NULL,
+    target  TEXT NOT NULL,
+    PRIMARY KEY (channel, route)
   );
   `,
 ];

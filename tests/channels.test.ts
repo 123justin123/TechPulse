@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Channel, Digest, TopicState } from "../src/channels/channel.js";
 import { combineChannels, createChannel } from "../src/channels/index.js";
-import { createTopicRoutes } from "../src/channels/routes.js";
+import { createChannelRoutes, DIGEST_ROUTE, topicRoute } from "../src/channels/routes.js";
 import type { CommandHandler } from "../src/commands.js";
-import { fakeChannel, insertTopic, memoryDb, recordingLog } from "./helpers.js";
+import { fakeChannel, memoryDb, recordingLog } from "./helpers.js";
 
 const DIGEST: Digest = { date: "2026-09-12", threshold: 6, totalConsidered: 0, groups: [], topicGroups: [] };
 const FINANCE: TopicState = { id: 1, label: "Finance", description: "Definition.", active: true };
@@ -73,22 +73,23 @@ describe("combineChannels", () => {
   });
 });
 
-describe("createTopicRoutes", () => {
-  it("stores one target per channel and topic", () => {
+describe("createChannelRoutes", () => {
+  it("stores one target per channel and route", () => {
     const db = memoryDb();
-    const topicId = insertTopic(db, "Finance");
-    const discord = createTopicRoutes(db, "discord");
-    const slack = createTopicRoutes(db, "slack");
+    const discord = createChannelRoutes(db, "discord");
+    const slack = createChannelRoutes(db, "slack");
 
-    discord.set(topicId, "first");
-    discord.set(topicId, "second");
-    slack.set(topicId, "other");
+    discord.set(topicRoute(1), "first");
+    discord.set(topicRoute(1), "second");
+    discord.set(DIGEST_ROUTE, "digest");
+    slack.set(topicRoute(1), "other");
 
-    assert.equal(discord.get(topicId), "second");
-    assert.equal(slack.get(topicId), "other");
-    discord.delete(topicId);
-    assert.equal(discord.get(topicId), undefined);
-    assert.equal(slack.get(topicId), "other");
+    assert.equal(discord.get("topic:1"), "second");
+    assert.equal(discord.get(DIGEST_ROUTE), "digest");
+    assert.equal(slack.get(topicRoute(1)), "other");
+    discord.delete(topicRoute(1));
+    assert.equal(discord.get(topicRoute(1)), undefined);
+    assert.equal(slack.get(topicRoute(1)), "other");
   });
 });
 
@@ -97,7 +98,7 @@ describe("createChannel", () => {
     const channel = createChannel(
       {
         name: "discord",
-        settings: { webhookUrl: "https://discord.test/webhook", botToken: undefined, allowedUserIds: [] },
+        settings: { botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined },
       },
       { db: memoryDb(), log: recordingLog().log },
     );

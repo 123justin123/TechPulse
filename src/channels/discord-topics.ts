@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { errorMessage, type Logger } from "../logger.js";
 import type { TopicState } from "./channel.js";
-import type { TopicRoutes } from "./routes.js";
+import { type ChannelRoutes, DIGEST_ROUTE, topicRoute } from "./routes.js";
 
 export const TOPIC_CATEGORY = "TechPulse";
 export const ARCHIVE_CATEGORY = "TechPulse archive";
@@ -17,8 +17,10 @@ export const ARCHIVE_CATEGORY = "TechPulse archive";
 const MAX_CHANNEL_NAME_LENGTH = 100;
 const MAX_CHANNEL_TOPIC_LENGTH = 1024;
 const WEBHOOK_NAME = "TechPulse";
+const DIGEST_CHANNEL = "digest";
+const DIGEST_CHANNEL_TOPIC = "Daily TechPulse digest: the best articles of every topic.";
 
-export interface TopicRoute {
+export interface WebhookRoute {
   channelId: string;
   webhookUrl: string;
 }
@@ -40,10 +42,10 @@ export interface DiscordGuildApi {
   createWebhook(channelId: string): Promise<string>;
 }
 
-export function readRoute(target: string | undefined): TopicRoute | undefined {
+export function readRoute(target: string | undefined): WebhookRoute | undefined {
   if (!target) return undefined;
   try {
-    const { channelId, webhookUrl } = JSON.parse(target) as Partial<TopicRoute>;
+    const { channelId, webhookUrl } = JSON.parse(target) as Partial<WebhookRoute>;
     return typeof channelId === "string" && typeof webhookUrl === "string" ? { channelId, webhookUrl } : undefined;
   } catch {
     return undefined;
@@ -59,8 +61,15 @@ export function channelNameOf(label: string): string {
   return name || "topic";
 }
 
-function channelTopicOf(topic: TopicState): string {
-  return topic.description.slice(0, MAX_CHANNEL_TOPIC_LENGTH);
+function channelTopicOf(description: string): string {
+  return description.slice(0, MAX_CHANNEL_TOPIC_LENGTH);
+}
+
+interface ManagedChannel {
+  route: string;
+  name: string;
+  description: string;
+  label: string;
 }
 
 export async function syncTopicChannels({
@@ -70,7 +79,7 @@ export async function syncTopicChannels({
   log,
 }: {
   api: DiscordGuildApi;
-  routes: TopicRoutes;
+  routes: ChannelRoutes;
   topics: readonly TopicState[];
   log: Logger;
 }): Promise<void> {
@@ -84,64 +93,78 @@ export async function syncTopicChannels({
     return id;
   };
 
-  const openChannel = async (topic: TopicState): Promise<void> => {
-    const route = readRoute(routes.get(topic.id));
+  const openChannel = async ({ route: routeKey, name, description, label }: ManagedChannel): Promise<void> => {
+    const route = readRoute(routes.get(routeKey));
     const parentId = await categoryId(TOPIC_CATEGORY, false);
     const existing = route && (await api.fetchTextChannel(route.channelId));
+    const topic = channelTopicOf(description);
 
     let channel: GuildTextChannel;
     if (existing) {
       channel = existing;
       if (channel.parentId !== parentId) {
         await api.moveChannel(channel.id, parentId);
-        log.info(`Channel of topic "${topic.label}" restored from the archive.`);
+        log.info(`Channel of ${label} restored from the archive.`);
       }
-      if (channel.topic !== channelTopicOf(topic)) {
-        await api.setChannelTopic(channel.id, channelTopicOf(topic));
+      if (channel.topic !== topic) {
+        await api.setChannelTopic(channel.id, topic);
       }
     } else {
-      channel = await api.createTextChannel({
-        name: channelNameOf(topic.label),
-        topic: channelTopicOf(topic),
-        parentId,
-      });
-      log.info(`Channel #${channelNameOf(topic.label)} created for topic "${topic.label}".`);
+      channel = await api.createTextChannel({ name, topic, parentId });
+      log.info(`Channel #${name} created for ${label}.`);
     }
 
     const keepsWebhook = route?.channelId === channel.id && (await api.hasWebhook(channel.id, route.webhookUrl));
     const webhookUrl = keepsWebhook ? route.webhookUrl : await api.createWebhook(channel.id);
-    routes.set(topic.id, JSON.stringify({ channelId: channel.id, webhookUrl } satisfies TopicRoute));
+    routes.set(routeKey, JSON.stringify({ channelId: channel.id, webhookUrl } satisfies WebhookRoute));
   };
 
-  const archiveChannel = async (topic: TopicState): Promise<void> => {
-    const route = readRoute(routes.get(topic.id));
+  const archiveChannel = async ({ route: routeKey, label }: ManagedChannel): Promise<void> => {
+    const route = readRoute(routes.get(routeKey));
     if (!route) return;
     const channel = await api.fetchTextChannel(route.channelId);
     if (!channel) {
-      routes.delete(topic.id);
+      routes.delete(routeKey);
       return;
     }
     const parentId = await categoryId(ARCHIVE_CATEGORY, true);
     if (channel.parentId !== parentId) {
       await api.moveChannel(channel.id, parentId);
-      log.info(`Channel of topic "${topic.label}" archived.`);
+      log.info(`Channel of ${label} archived.`);
     }
   };
 
-  for (const topic of topics) {
+  const sync = async (channel: ManagedChannel, active: boolean): Promise<void> => {
     try {
-      await (topic.active ? openChannel(topic) : archiveChannel(topic));
+      await (active ? openChannel(channel) : archiveChannel(channel));
     } catch (error) {
-      log.warn(`Channel of topic "${topic.label}" could not be synced: ${errorMessage(error)}`);
+      log.warn(`Channel of ${channel.label} could not be synced: ${errorMessage(error)}`);
     }
+  };
+
+  await sync(
+    { route: DIGEST_ROUTE, name: DIGEST_CHANNEL, description: DIGEST_CHANNEL_TOPIC, label: "the digest" },
+    true,
+  );
+  for (const topic of topics) {
+    await sync(
+      {
+        route: topicRoute(topic.id),
+        name: channelNameOf(topic.label),
+        description: topic.description,
+        label: `topic "${topic.label}"`,
+      },
+      topic.active,
+    );
   }
 }
 
-export async function createGuildApi(client: Client, webhookUrl: string, log: Logger): Promise<DiscordGuildApi> {
-  const { id, token } = parseWebhookUrl(webhookUrl);
-  const webhook = await client.fetchWebhook(id, token);
-  if (!webhook.guildId) throw new Error("DISCORD_WEBHOOK_URL does not belong to a server.");
-  const guild = await client.guilds.fetch(webhook.guildId);
+export async function createGuildApi(
+  client: Client,
+  guildId: string | undefined,
+  log: Logger,
+): Promise<DiscordGuildApi> {
+  const guild = await resolveGuild(client, guildId);
 
   const textChannel = async (channelId: string): Promise<TextChannel> => {
     const channel = await guild.channels.fetch(channelId);
@@ -214,12 +237,24 @@ export async function createGuildApi(client: Client, webhookUrl: string, log: Lo
   };
 }
 
+async function resolveGuild(client: Client, guildId: string | undefined): Promise<Guild> {
+  if (guildId) return client.guilds.fetch(guildId);
+  const guilds = await client.guilds.fetch();
+  const [onlyGuild] = guilds.values();
+  if (guilds.size === 1 && onlyGuild) return onlyGuild.fetch();
+  throw new Error(
+    guilds.size === 0
+      ? "the bot is not on any server yet: invite it first."
+      : `the bot is on ${guilds.size} servers: set DISCORD_GUILD_ID to choose one.`,
+  );
+}
+
 function readOnlyOverwrite(guild: Guild) {
   return { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.SendMessages] };
 }
 
 export function parseWebhookUrl(url: string): { id: string; token: string } {
   const match = /\/webhooks\/(\d+)\/([^/?#]+)/.exec(url);
-  if (!match?.[1] || !match[2]) throw new Error("DISCORD_WEBHOOK_URL is not a Discord webhook URL.");
+  if (!match?.[1] || !match[2]) throw new Error("The stored webhook URL is not a Discord webhook URL.");
   return { id: match[1], token: match[2] };
 }

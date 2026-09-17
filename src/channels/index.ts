@@ -4,7 +4,7 @@ import type { EnvReader } from "../env.js";
 import { errorMessage, type Logger } from "../logger.js";
 import type { Channel, ChannelDefinition, Digest, TopicState } from "./channel.js";
 import { discordChannel } from "./discord.js";
-import { createTopicRoutes } from "./routes.js";
+import { createChannelRoutes } from "./routes.js";
 
 const CHANNEL_DEFINITIONS = {
   discord: discordChannel,
@@ -25,7 +25,7 @@ export function readChannelConfig(name: ChannelName, env: EnvReader): ChannelCon
 
 export function createChannel({ name, settings }: ChannelConfig, { db, log }: { db: Db; log: Logger }): Channel {
   const definition = CHANNEL_DEFINITIONS[name] as ChannelDefinition<unknown>;
-  return definition.create(settings, { log: log.child(name), routes: createTopicRoutes(db, name) });
+  return definition.create(settings, { log: log.child(name), routes: createChannelRoutes(db, name) });
 }
 
 export function combineChannels(channels: readonly Channel[], log: Logger): Channel {
