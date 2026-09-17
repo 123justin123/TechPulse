@@ -1,5 +1,6 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import Database from "better-sqlite3";
 import type { Channel, Digest } from "../src/channels/channel.js";
 import { type Db, IN_MEMORY_DATABASE, openDatabase } from "../src/db.js";
 import type { Http, RequestOptions } from "../src/http.js";
@@ -15,8 +16,16 @@ import { createLogger, type Logger } from "../src/logger.js";
 export const NOW = new Date("2026-09-12T12:00:00Z");
 export const TEST_LANGUAGE = "English";
 
+const MIGRATED_DATABASE = await openDatabase(IN_MEMORY_DATABASE).then((db) => {
+  const image = db.serialize();
+  db.close();
+  return image;
+});
+
 export function memoryDb(): Db {
-  return openDatabase(IN_MEMORY_DATABASE);
+  const db = new Database(MIGRATED_DATABASE);
+  db.pragma("foreign_keys = ON");
+  return db;
 }
 
 export function recordingLog(): { log: Logger; lines: string[] } {

@@ -2,11 +2,12 @@ import "dotenv/config";
 import { combineChannels, createChannel } from "./channels/index.js";
 import { createCommandHandler } from "./commands.js";
 import { type Config, ConfigError, loadConfig } from "./config.js";
-import { openDatabase, schemaVersion } from "./db.js";
+import { type Db, openDatabase } from "./db.js";
 import { sendDigest } from "./digest.js";
 import { createHttp } from "./http.js";
 import { createLlmProvider } from "./llm/index.js";
-import { createLogger, errorMessage } from "./logger.js";
+import { createLogger, errorMessage, type Logger } from "./logger.js";
+import { MigrationError } from "./migrations/index.js";
 import { createScheduler } from "./scheduler.js";
 import { scorePending } from "./scoring.js";
 import { createPageDescriber } from "./sources/enrich.js";
@@ -25,9 +26,21 @@ function readConfigOrExit(): Config {
   }
 }
 
+async function openDatabaseOrExit(log: Logger): Promise<Db> {
+  try {
+    return await openDatabase(config.files.database, log);
+  } catch (error) {
+    if (error instanceof MigrationError) {
+      log.error(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
+}
+
 const config = readConfigOrExit();
 const log = createLogger("techpulse", config.logLevel);
-const db = openDatabase(config.files.database);
+const db = await openDatabaseOrExit(log.child("db"));
 const http = createHttp();
 const llm = createLlmProvider(config.llm);
 const channel = combineChannels(
@@ -79,7 +92,7 @@ const scheduler = createScheduler({
 });
 
 log.info(
-  `Database ready (schema v${schemaVersion(db)}). LLM: ${config.llm.provider}, ` +
+  `Database ready. LLM: ${config.llm.provider}, ` +
     `topics with ${llm.models.topic}, scoring with ${llm.models.scoring}. Channels: ${channel.name}.`,
 );
 
