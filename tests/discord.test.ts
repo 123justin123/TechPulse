@@ -5,20 +5,19 @@ import {
   DiscordChannel,
   renderDigest,
   renderReply,
-  renderTopicDigest,
   SLASH_COMMANDS,
   toCommand,
   type WebhookPayload,
 } from "../src/channels/discord.js";
-import { createChannelRoutes, DIGEST_ROUTE, topicRoute } from "../src/channels/routes.js";
+import { createChannelRoutes, topicRoute } from "../src/channels/routes.js";
 import { JOB_NAMES } from "../src/commands.js";
-import { insertTopic, memoryDb, recordingLog, startServer, type TestServer } from "./helpers.js";
+import { memoryDb, recordingLog, startServer, type TestServer } from "./helpers.js";
 
 const DISCORD_ADMINISTRATOR_PERMISSION = "8";
 const LONG_SUMMARY = "A summary sentence of realistic length. ".repeat(6);
 
 const embedLength = (message: WebhookPayload): number =>
-  (message.embeds ?? []).reduce((total, embed) => total + (embed.title?.length ?? 0) + embed.description.length, 0);
+  (message.embeds ?? []).reduce((total, embed) => total + embed.description.length, 0);
 
 function itemOf(overrides: Partial<DigestItem> = {}): DigestItem {
   return {
@@ -32,97 +31,66 @@ function itemOf(overrides: Partial<DigestItem> = {}): DigestItem {
   };
 }
 
-function groupOf(topic: string, items: DigestItem[], topicId: number | null = null): DigestGroup {
+function groupOf(topicId: number, topic: string, items: DigestItem[]): DigestGroup {
   return { topicId, topic, items };
 }
 
-function digestOf(groups: DigestGroup[], topicGroups: DigestGroup[] = []): Digest {
-  return { date: "2026-09-12", threshold: 6, totalConsidered: 400, groups, topicGroups };
+function digestOf(groups: DigestGroup[]): Digest {
+  return { date: "2026-09-12", threshold: 6, groups };
+}
+
+function render(group: DigestGroup): WebhookPayload[] {
+  return renderDigest(digestOf([group]), group);
 }
 
 describe("renderDigest", () => {
-  it("stays under every Discord limit on a large digest without losing any article", () => {
-    const messages = renderDigest(
-      digestOf(
-        Array.from({ length: 25 }, (_, groupIndex) =>
-          groupOf(
-            `Topic ${groupIndex}`,
-            Array.from({ length: 5 }, (_, itemIndex) =>
-              itemOf({
-                title: `Article ${groupIndex}-${itemIndex}`,
-                url: `https://example.test/${groupIndex}/${itemIndex}`,
-                score: 10 - itemIndex,
-                summary: LONG_SUMMARY,
-              }),
-            ),
-          ),
+  it("titles the first message with the topic and the date", () => {
+    const [first, ...others] = render(groupOf(1, "C_Lang", [itemOf()]));
+    assert.match(
+      first?.content ?? "",
+      /^\*\*C\\_Lang — Saturday,? 12 September 2026\*\*\n1 article · threshold 6\/10$/,
+    );
+    assert.equal(others.length, 0);
+    assert.equal(render(groupOf(1, "Rust", [itemOf(), itemOf()]))[0]?.content?.includes("2 articles"), true);
+  });
+
+  it("stays under every Discord limit on a crowded topic without losing any article", () => {
+    const messages = render(
+      groupOf(
+        1,
+        "Rust",
+        Array.from({ length: 125 }, (_, index) =>
+          itemOf({ title: `Article ${index}`, url: `https://example.test/${index}`, summary: LONG_SUMMARY }),
         ),
       ),
     );
 
     assert.ok(messages.length > 1);
-    assert.match(messages[0]?.content ?? "", /^\*\*TechPulse — Saturday,? 12 September 2026\*\*/);
     assert.ok(
       messages.slice(1).every((message) => message.content === undefined),
       "header is not repeated",
     );
     assert.ok(messages.every((message) => (message.embeds ?? []).length <= 10));
     assert.ok(messages.every((message) => embedLength(message) <= 6000));
-    const descriptions = messages
-      .flatMap((message) => message.embeds ?? [])
-      .map((embed) => embed.description)
-      .join("\n");
-    assert.equal(descriptions.match(/example\.test/g)?.length, 125);
-  });
-
-  it("spreads a crowded topic over several embeds and truncates a long title", () => {
-    const embeds = renderDigest(
-      digestOf([
-        groupOf(
-          "T".repeat(400),
-          Array.from({ length: 60 }, (_, index) =>
-            itemOf({ title: `Article ${index}`, url: `https://example.test/${index}`, summary: LONG_SUMMARY }),
-          ),
-        ),
-      ]),
-    ).flatMap((message) => message.embeds ?? []);
-
-    assert.ok(embeds.length > 1);
+    const embeds = messages.flatMap((message) => message.embeds ?? []);
     assert.ok(embeds.every((embed) => embed.description.length <= 4096));
-    assert.equal(embeds[0]?.title?.length, 256);
-    assert.ok(embeds.slice(1).every((embed) => embed.title === undefined));
+    assert.equal(
+      embeds
+        .map((embed) => embed.description)
+        .join("\n")
+        .match(/example\.test/g)?.length,
+      125,
+    );
   });
 
   it("escapes parentheses in urls so markdown links stay intact", () => {
-    const [message] = renderDigest(digestOf([groupOf("Wiki", [itemOf({ url: "https://wiki.test/A_(b)" })])]));
+    const [message] = render(groupOf(1, "Wiki", [itemOf({ url: "https://wiki.test/A_(b)" })]));
     assert.match(message?.embeds?.[0]?.description ?? "", /\(https:\/\/wiki\.test\/A_%28b%29\)/);
   });
 
   it("mentions the other topics of an article next to its source", () => {
-    const [message] = renderDigest(
-      digestOf([groupOf("Rust", [itemOf({ source: "LWN", topics: ["Rust", "Linux", "C_Lang"] })])]),
-    );
-    assert.match(message?.embeds?.[0]?.description ?? "", /\*LWN · also in Linux, C\\_Lang\*$/);
-  });
-
-  it("renders an empty digest as a single text message", () => {
-    const messages = renderDigest({ ...digestOf([]), totalConsidered: 42 });
-    assert.equal(messages.length, 1);
-    assert.equal(messages[0]?.embeds, undefined);
-    assert.match(messages[0]?.content ?? "", /out of 42 analyzed/);
-  });
-});
-
-describe("renderTopicDigest", () => {
-  it("titles the message with the topic and leaves the embeds untitled", () => {
-    const group = groupOf("Linux", [itemOf({ source: "LWN", topics: ["Rust", "Linux"] })], 2);
-    const [message] = renderTopicDigest(digestOf([], [group]), group);
-    assert.match(
-      message?.content ?? "",
-      /^\*\*Linux — Saturday,? 12 September 2026\*\*\n1 articles · threshold 6\/10$/,
-    );
-    assert.equal(message?.embeds?.[0]?.title, undefined);
-    assert.match(message?.embeds?.[0]?.description ?? "", /\*LWN · also in Rust\*$/);
+    const [message] = render(groupOf(2, "Linux", [itemOf({ source: "LWN", topics: ["Rust", "Linux", "C_Lang"] })]));
+    assert.match(message?.embeds?.[0]?.description ?? "", /\*LWN · also in Rust, C\\_Lang\*$/);
   });
 });
 
@@ -195,103 +163,85 @@ describe("DiscordChannel", () => {
     await server.close();
   });
 
-  const routeTo = (path: string) => JSON.stringify({ channelId: path, webhookUrl: `${server.url}/${path}` });
+  const FINANCE = groupOf(1, "Finance", [itemOf()]);
+  const LINUX = groupOf(2, "Linux", [itemOf()]);
 
-  const createChannel = ({ db = memoryDb(), log = recordingLog().log, withDigestChannel = true } = {}) => {
-    const routes = createChannelRoutes(db, "discord");
-    if (withDigestChannel) routes.set(DIGEST_ROUTE, routeTo("webhook"));
+  const createChannel = ({ log = recordingLog().log, routed = [FINANCE, LINUX] } = {}) => {
+    const routes = createChannelRoutes(memoryDb(), "discord");
+    for (const group of routed) {
+      const path = `${group.topic.toLowerCase()}-webhook`;
+      routes.set(topicRoute(group.topicId), JSON.stringify({ channelId: path, webhookUrl: `${server.url}/${path}` }));
+    }
     return new DiscordChannel({ botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined }, log, routes);
   };
 
-  it("posts each message to the webhook without allowing mentions", async () => {
+  it("posts each topic to its own channel without allowing mentions", async () => {
     server.requests.length = 0;
-    await createChannel().send(digestOf([groupOf("Finance", [itemOf()])]));
-    assert.equal(server.requests.length, 1);
-    assert.equal(server.requests[0]?.method, "POST");
-    assert.deepEqual(server.requests[0]?.body.allowed_mentions, { parse: [] });
-    assert.equal(server.requests[0]?.body.embeds[0].title, "Finance");
-  });
-
-  it("also posts each routed topic to its own channel and skips the others", async () => {
-    server.requests.length = 0;
-    const db = memoryDb();
-    const finance = insertTopic(db, "Finance");
-    const linux = insertTopic(db, "Linux");
-    createChannelRoutes(db, "discord").set(topicRoute(linux), routeTo("linux-webhook"));
-    const item = itemOf({ topics: ["Finance", "Linux"] });
-
-    await createChannel({ db }).send(
-      digestOf(
-        [groupOf("Finance", [item], finance)],
-        [groupOf("Finance", [item], finance), groupOf("Linux", [item], linux)],
-      ),
-    );
-
+    await createChannel().send(digestOf([FINANCE, LINUX]));
     assert.deepEqual(
       server.requests.map((request) => request.url),
-      ["/webhook", "/linux-webhook"],
+      ["/finance-webhook", "/linux-webhook"],
     );
+    assert.equal(server.requests[0]?.method, "POST");
+    assert.deepEqual(server.requests[0]?.body.allowed_mentions, { parse: [] });
     assert.match(server.requests[1]?.body.content, /^\*\*Linux — /);
   });
 
-  it("keeps posting the other topics when one topic channel fails", async () => {
+  it("logs the topics that failed or have no channel yet and keeps posting the others", async () => {
     server.requests.length = 0;
-    failingPath = "/broken-webhook";
-    const db = memoryDb();
-    const routes = createChannelRoutes(db, "discord");
-    const broken = insertTopic(db, "Broken");
-    const linux = insertTopic(db, "Linux");
-    routes.set(topicRoute(broken), routeTo("broken-webhook"));
-    routes.set(topicRoute(linux), routeTo("linux-webhook"));
+    failingPath = "/finance-webhook";
+    const broken = groupOf(3, "Broken", [itemOf()]);
     const { log, lines } = recordingLog();
 
-    await createChannel({ db, log }).send(
-      digestOf([], [groupOf("Broken", [itemOf()], broken), groupOf("Linux", [itemOf()], linux)]),
-    );
+    await createChannel({ log }).send(digestOf([FINANCE, broken, LINUX]));
 
     assert.deepEqual(
       server.requests.map((request) => request.url),
-      ["/webhook", "/broken-webhook", "/linux-webhook"],
+      ["/finance-webhook", "/linux-webhook"],
     );
-    assert.ok(lines.some((line) => line.includes('Digest of topic "Broken" could not be posted')));
+    const warning = lines.find((line) => line.includes("some topic channels failed")) ?? "";
+    assert.match(warning, /Finance: Discord webhook failed \(404\)/);
+    assert.match(warning, /Broken: its channel does not exist yet/);
     failingPath = undefined;
+  });
+
+  it("fails when no topic channel received the digest, so articles are not marked as sent", async () => {
+    await assert.rejects(
+      createChannel({ routed: [] }).send(digestOf([FINANCE])),
+      /Digest could not be posted to any topic channel \(Finance: its channel does not exist yet\)/,
+    );
   });
 
   it("waits for the delay requested by Discord, then retries", async () => {
     server.requests.length = 0;
     rateLimitedResponses = 1;
-    await createChannel().send(digestOf([]));
+    await createChannel().send(digestOf([FINANCE]));
     assert.equal(server.requests.length, 2);
   });
 
   it("gives up after repeated rate limits", async () => {
     server.requests.length = 0;
     rateLimitedResponses = 10;
-    await assert.rejects(createChannel().send(digestOf([])), /Discord webhook failed \(429\)/);
+    await assert.rejects(createChannel().send(digestOf([FINANCE])), /Discord webhook failed \(429\)/);
     assert.equal(server.requests.length, 3);
     rateLimitedResponses = 0;
   });
 
   it("reports a failing webhook", async () => {
     responseStatus = 500;
-    await assert.rejects(createChannel().send(digestOf([])), /Discord webhook failed \(500\)/);
+    await assert.rejects(createChannel().send(digestOf([FINANCE])), /Discord webhook failed \(500\)/);
     responseStatus = 204;
-  });
-
-  it("refuses to send the digest before the bot has created the digest channel", async () => {
-    server.requests.length = 0;
-    await assert.rejects(
-      createChannel({ withDigestChannel: false }).send(digestOf([])),
-      /The #digest channel does not exist yet/,
-    );
-    assert.equal(server.requests.length, 0);
   });
 
   it("skips channel sync while the bot is not logged in", async () => {
     const db = memoryDb();
-    await createChannel({ db, withDigestChannel: false }).syncTopics([
-      { id: 1, label: "Finance", description: "Definition.", active: true },
-    ]);
-    assert.equal(createChannelRoutes(db, "discord").get(DIGEST_ROUTE), undefined);
+    const routes = createChannelRoutes(db, "discord");
+    const channel = new DiscordChannel(
+      { botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined },
+      recordingLog().log,
+      routes,
+    );
+    await channel.syncTopics([{ id: 1, label: "Finance", description: "Definition.", active: true }]);
+    assert.equal(routes.get(topicRoute(1)), undefined);
   });
 });

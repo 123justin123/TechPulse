@@ -1,7 +1,5 @@
 import type { Db } from "../db.js";
 
-export const DIGEST_ROUTE = "digest";
-
 export function topicRoute(topicId: number): string {
   return `topic:${topicId}`;
 }

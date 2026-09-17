@@ -1,7 +1,5 @@
-import type { Channel, Digest, DigestGroup, DigestItem } from "./channels/channel.js";
+import type { Channel, Digest, DigestGroup } from "./channels/channel.js";
 import type { Db } from "./db.js";
-
-export const UNCLASSIFIED_TOPIC = "Unclassified";
 
 export interface DigestSettings {
   threshold: number;
@@ -43,19 +41,19 @@ export async function sendDigest({
     return "No article scored since the last digest: nothing to send.";
   }
 
-  const aboveThreshold = candidates.filter((item) => item.score >= settings.threshold);
-  const retained = aboveThreshold.slice(0, settings.maxItems);
-  const rejected = candidates.filter((item) => item.score < settings.threshold);
+  const isDeliverable = (item: Candidate) => item.score >= settings.threshold && item.topics.length > 0;
+  const deliverable = candidates.filter(isDeliverable);
+  const retained = deliverable.slice(0, settings.maxItems);
+  const rejected = candidates.filter((item) => !isDeliverable(item));
 
-  const digest: Digest = {
-    date: now.toISOString().slice(0, 10),
-    threshold: settings.threshold,
-    totalConsidered: candidates.length,
-    groups: groupByMainTopic(retained),
-    topicGroups: groupByEveryTopic(retained),
-  };
-
-  await channel.send(digest);
+  if (retained.length > 0) {
+    const digest: Digest = {
+      date: now.toISOString().slice(0, 10),
+      threshold: settings.threshold,
+      groups: groupByTopic(retained),
+    };
+    await channel.send(digest);
+  }
 
   const markSent = db.prepare("UPDATE raw_items SET status = 'sent', sent_at = datetime('now') WHERE id = ?");
   const markDiscarded = db.prepare("UPDATE raw_items SET status = 'discarded' WHERE id = ?");
@@ -64,7 +62,7 @@ export async function sendDigest({
     for (const item of rejected) markDiscarded.run(item.id);
   })();
 
-  const postponed = aboveThreshold.length - retained.length;
+  const postponed = deliverable.length - retained.length;
   return (
     `Digest sent: ${retained.length} retained, ${rejected.length} discarded` +
     (postponed > 0 ? `, ${postponed} postponed to the next digest.` : ".")
@@ -99,40 +97,21 @@ function loadCandidates(db: Db): Candidate[] {
   return rows.map((row) => ({ ...row, topics: topicsByItem.get(row.id) ?? [] }));
 }
 
-function groupByMainTopic(items: readonly Candidate[]): DigestGroup[] {
-  return sortGroups(groupItems(items, (item) => [item.topics[0] ?? { id: null, label: UNCLASSIFIED_TOPIC }]));
-}
-
-function groupByEveryTopic(items: readonly Candidate[]): DigestGroup[] {
-  return sortGroups(groupItems(items, (item) => item.topics));
-}
-
-function groupItems(
-  items: readonly Candidate[],
-  topicsOf: (item: Candidate) => { id: number | null; label: string }[],
-): DigestGroup[] {
-  const groups = new Map<string, DigestGroup>();
+function groupByTopic(items: readonly Candidate[]): DigestGroup[] {
+  const groups = new Map<number, DigestGroup>();
   for (const item of items) {
-    for (const { id, label } of topicsOf(item)) {
-      const group = groups.get(label) ?? { topicId: id, topic: label, items: [] };
-      group.items.push(toDigestItem(item));
-      groups.set(label, group);
+    for (const { id, label } of item.topics) {
+      const group = groups.get(id) ?? { topicId: id, topic: label, items: [] };
+      group.items.push({
+        title: item.title,
+        url: item.url,
+        score: item.score,
+        summary: item.summary ?? "",
+        source: item.sourceRef ?? item.source,
+        topics: item.topics.map((topic) => topic.label),
+      });
+      groups.set(id, group);
     }
   }
-  return [...groups.values()];
-}
-
-function toDigestItem(item: Candidate): DigestItem {
-  return {
-    title: item.title,
-    url: item.url,
-    score: item.score,
-    summary: item.summary ?? "",
-    source: item.sourceRef ?? item.source,
-    topics: item.topics.map((topic) => topic.label),
-  };
-}
-
-function sortGroups(groups: DigestGroup[]): DigestGroup[] {
-  return groups.sort((a, b) => (b.items[0]?.score ?? 0) - (a.items[0]?.score ?? 0));
+  return [...groups.values()].sort((a, b) => (b.items[0]?.score ?? 0) - (a.items[0]?.score ?? 0));
 }

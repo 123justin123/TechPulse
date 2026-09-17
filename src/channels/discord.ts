@@ -21,12 +21,11 @@ import { sleep } from "../http.js";
 import { errorMessage, type Logger } from "../logger.js";
 import type { Channel, ChannelDefinition, Digest, DigestGroup, TopicState } from "./channel.js";
 import { createGuildApi, type DiscordGuildApi, readRoute, syncTopicChannels } from "./discord-topics.js";
-import { type ChannelRoutes, DIGEST_ROUTE, topicRoute } from "./routes.js";
+import { type ChannelRoutes, topicRoute } from "./routes.js";
 
 const MAX_MESSAGE_LENGTH = 1900;
 const MAX_EMBEDS_PER_MESSAGE = 10;
 const MAX_EMBED_DESCRIPTION_LENGTH = 4096;
-const MAX_EMBED_TITLE_LENGTH = 256;
 const MAX_TOTAL_EMBED_LENGTH = 6000;
 
 const WEBHOOK_TIMEOUT_MS = 15_000;
@@ -104,7 +103,6 @@ export function toCommand({ commandName, subcommand, option }: SlashInvocation):
 }
 
 export interface DiscordEmbed {
-  title?: string | undefined;
   description: string;
   color: number;
 }
@@ -149,27 +147,24 @@ export class DiscordChannel implements Channel {
   ) {}
 
   async send(digest: Digest): Promise<void> {
-    const digestRoute = readRoute(this.routes.get(DIGEST_ROUTE));
-    if (!digestRoute) {
-      throw new Error(
-        "The #digest channel does not exist yet: check that the bot is connected and allowed to create it.",
-      );
-    }
-    for (const payload of renderDigest(digest)) {
-      await postWebhook(digestRoute.webhookUrl, payload, this.log);
-    }
-
-    for (const group of digest.topicGroups) {
-      const route = group.topicId === null ? undefined : readRoute(this.routes.get(topicRoute(group.topicId)));
-      if (!route) continue;
+    const failures: string[] = [];
+    for (const group of digest.groups) {
       try {
-        for (const payload of renderTopicDigest(digest, group)) {
+        const route = readRoute(this.routes.get(topicRoute(group.topicId)));
+        if (!route) throw new Error("its channel does not exist yet");
+        for (const payload of renderDigest(digest, group)) {
           await postWebhook(route.webhookUrl, payload, this.log);
         }
       } catch (error) {
-        this.log.warn(`Digest of topic "${group.topic}" could not be posted to its channel: ${errorMessage(error)}`);
+        failures.push(`${group.topic}: ${errorMessage(error)}`);
       }
     }
+
+    if (failures.length === 0) return;
+    if (failures.length === digest.groups.length) {
+      throw new Error(`Digest could not be posted to any topic channel (${failures.join("; ")})`);
+    }
+    this.log.warn(`Digest posted, but some topic channels failed: ${failures.join("; ")}`);
   }
 
   syncTopics(topics: readonly TopicState[]): Promise<void> {
@@ -276,36 +271,15 @@ export function renderReply(reply: CommandReply): string[] {
   return reply.map(({ title, body }) => (title ? `**${escapeMarkdown(title)}**\n${body}` : body));
 }
 
-export function renderDigest(digest: Digest): WebhookPayload[] {
-  const formattedDate = formatDate(digest.date);
-  const retainedCount = digest.groups.reduce((total, group) => total + group.items.length, 0);
-
-  if (retainedCount === 0) {
-    return [
-      {
-        content:
-          `**TechPulse — ${formattedDate}**\n` +
-          `No article above the threshold (${digest.threshold}/10) out of ${digest.totalConsidered} analyzed.`,
-      },
-    ];
-  }
-
-  const header =
-    `**TechPulse — ${formattedDate}**\n` +
-    `${retainedCount} articles retained out of ${digest.totalConsidered} analyzed · threshold ${digest.threshold}/10`;
-
-  const embeds = digest.groups.flatMap((group) => groupEmbeds(group, { titled: true }));
-  return packEmbeds(embeds, header);
-}
-
-export function renderTopicDigest(digest: Digest, group: DigestGroup): WebhookPayload[] {
+export function renderDigest(digest: Digest, group: DigestGroup): WebhookPayload[] {
+  const count = group.items.length;
   const header =
     `**${escapeMarkdown(group.topic)} — ${formatDate(digest.date)}**\n` +
-    `${group.items.length} articles · threshold ${digest.threshold}/10`;
-  return packEmbeds(groupEmbeds(group, { titled: false }), header);
+    `${count} ${count === 1 ? "article" : "articles"} · threshold ${digest.threshold}/10`;
+  return packEmbeds(groupEmbeds(group), header);
 }
 
-function groupEmbeds(group: DigestGroup, { titled }: { titled: boolean }): DiscordEmbed[] {
+function groupEmbeds(group: DigestGroup): DiscordEmbed[] {
   const itemBlocks = group.items.map((item) => {
     const otherTopics = item.topics.filter((topic) => topic !== group.topic);
     const alsoIn = otherTopics.length > 0 ? [`also in ${otherTopics.map(escapeMarkdown).join(", ")}`] : [];
@@ -315,8 +289,7 @@ function groupEmbeds(group: DigestGroup, { titled }: { titled: boolean }): Disco
     );
   });
   const color = colorForScore(group.items[0]?.score ?? 0);
-  return packBlocks(itemBlocks, MAX_EMBED_DESCRIPTION_LENGTH).map((description, index) => ({
-    title: titled && index === 0 ? group.topic.slice(0, MAX_EMBED_TITLE_LENGTH) : undefined,
+  return packBlocks(itemBlocks, MAX_EMBED_DESCRIPTION_LENGTH).map((description) => ({
     description,
     color,
   }));
@@ -363,7 +336,7 @@ function packEmbeds(embeds: readonly DiscordEmbed[], header: string): WebhookPay
   };
 
   for (const embed of embeds) {
-    const embedLength = (embed.title?.length ?? 0) + embed.description.length;
+    const embedLength = embed.description.length;
     if (currentEmbeds.length >= MAX_EMBEDS_PER_MESSAGE || currentLength + embedLength > MAX_TOTAL_EMBED_LENGTH) {
       flush();
     }

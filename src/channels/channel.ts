@@ -14,7 +14,7 @@ export interface DigestItem {
 }
 
 export interface DigestGroup {
-  topicId: number | null;
+  topicId: number;
   topic: string;
   items: DigestItem[];
 }
@@ -22,9 +22,7 @@ export interface DigestGroup {
 export interface Digest {
   date: string;
   threshold: number;
-  totalConsidered: number;
   groups: DigestGroup[];
-  topicGroups: DigestGroup[];
 }
 
 export type TopicState = Pick<Topic, "id" | "label" | "description" | "active">;

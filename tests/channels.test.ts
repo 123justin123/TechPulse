@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Channel, Digest, TopicState } from "../src/channels/channel.js";
 import { combineChannels, createChannel } from "../src/channels/index.js";
-import { createChannelRoutes, DIGEST_ROUTE, topicRoute } from "../src/channels/routes.js";
+import { createChannelRoutes, topicRoute } from "../src/channels/routes.js";
 import type { CommandHandler } from "../src/commands.js";
 import { fakeChannel, memoryDb, recordingLog } from "./helpers.js";
 
-const DIGEST: Digest = { date: "2026-09-12", threshold: 6, totalConsidered: 0, groups: [], topicGroups: [] };
+const DIGEST: Digest = { date: "2026-09-12", threshold: 6, groups: [] };
 const FINANCE: TopicState = { id: 1, label: "Finance", description: "Definition.", active: true };
 
 function failingChannel(name: string): Channel {
@@ -81,11 +81,9 @@ describe("createChannelRoutes", () => {
 
     discord.set(topicRoute(1), "first");
     discord.set(topicRoute(1), "second");
-    discord.set(DIGEST_ROUTE, "digest");
     slack.set(topicRoute(1), "other");
 
     assert.equal(discord.get("topic:1"), "second");
-    assert.equal(discord.get(DIGEST_ROUTE), "digest");
     assert.equal(slack.get(topicRoute(1)), "other");
     discord.delete(topicRoute(1));
     assert.equal(discord.get(topicRoute(1)), undefined);

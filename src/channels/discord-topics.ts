@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { errorMessage, type Logger } from "../logger.js";
 import type { TopicState } from "./channel.js";
-import { type ChannelRoutes, DIGEST_ROUTE, topicRoute } from "./routes.js";
+import { type ChannelRoutes, topicRoute } from "./routes.js";
 
 export const TOPIC_CATEGORY = "TechPulse";
 export const ARCHIVE_CATEGORY = "TechPulse archive";
@@ -17,8 +17,6 @@ export const ARCHIVE_CATEGORY = "TechPulse archive";
 const MAX_CHANNEL_NAME_LENGTH = 100;
 const MAX_CHANNEL_TOPIC_LENGTH = 1024;
 const WEBHOOK_NAME = "TechPulse";
-const DIGEST_CHANNEL = "digest";
-const DIGEST_CHANNEL_TOPIC = "Daily TechPulse digest: the best articles of every topic.";
 
 export interface WebhookRoute {
   channelId: string;
@@ -61,15 +59,8 @@ export function channelNameOf(label: string): string {
   return name || "topic";
 }
 
-function channelTopicOf(description: string): string {
-  return description.slice(0, MAX_CHANNEL_TOPIC_LENGTH);
-}
-
-interface ManagedChannel {
-  route: string;
-  name: string;
-  description: string;
-  label: string;
+function channelTopicOf(topic: TopicState): string {
+  return topic.description.slice(0, MAX_CHANNEL_TOPIC_LENGTH);
 }
 
 export async function syncTopicChannels({
@@ -93,69 +84,53 @@ export async function syncTopicChannels({
     return id;
   };
 
-  const openChannel = async ({ route: routeKey, name, description, label }: ManagedChannel): Promise<void> => {
-    const route = readRoute(routes.get(routeKey));
+  const openChannel = async (topic: TopicState): Promise<void> => {
+    const route = readRoute(routes.get(topicRoute(topic.id)));
     const parentId = await categoryId(TOPIC_CATEGORY, false);
     const existing = route && (await api.fetchTextChannel(route.channelId));
-    const topic = channelTopicOf(description);
 
     let channel: GuildTextChannel;
     if (existing) {
       channel = existing;
       if (channel.parentId !== parentId) {
         await api.moveChannel(channel.id, parentId);
-        log.info(`Channel of ${label} restored from the archive.`);
+        log.info(`Channel of topic "${topic.label}" restored from the archive.`);
       }
-      if (channel.topic !== topic) {
-        await api.setChannelTopic(channel.id, topic);
+      if (channel.topic !== channelTopicOf(topic)) {
+        await api.setChannelTopic(channel.id, channelTopicOf(topic));
       }
     } else {
-      channel = await api.createTextChannel({ name, topic, parentId });
-      log.info(`Channel #${name} created for ${label}.`);
+      const name = channelNameOf(topic.label);
+      channel = await api.createTextChannel({ name, topic: channelTopicOf(topic), parentId });
+      log.info(`Channel #${name} created for topic "${topic.label}".`);
     }
 
     const keepsWebhook = route?.channelId === channel.id && (await api.hasWebhook(channel.id, route.webhookUrl));
     const webhookUrl = keepsWebhook ? route.webhookUrl : await api.createWebhook(channel.id);
-    routes.set(routeKey, JSON.stringify({ channelId: channel.id, webhookUrl } satisfies WebhookRoute));
+    routes.set(topicRoute(topic.id), JSON.stringify({ channelId: channel.id, webhookUrl } satisfies WebhookRoute));
   };
 
-  const archiveChannel = async ({ route: routeKey, label }: ManagedChannel): Promise<void> => {
-    const route = readRoute(routes.get(routeKey));
+  const archiveChannel = async (topic: TopicState): Promise<void> => {
+    const route = readRoute(routes.get(topicRoute(topic.id)));
     if (!route) return;
     const channel = await api.fetchTextChannel(route.channelId);
     if (!channel) {
-      routes.delete(routeKey);
+      routes.delete(topicRoute(topic.id));
       return;
     }
     const parentId = await categoryId(ARCHIVE_CATEGORY, true);
     if (channel.parentId !== parentId) {
       await api.moveChannel(channel.id, parentId);
-      log.info(`Channel of ${label} archived.`);
+      log.info(`Channel of topic "${topic.label}" archived.`);
     }
   };
 
-  const sync = async (channel: ManagedChannel, active: boolean): Promise<void> => {
-    try {
-      await (active ? openChannel(channel) : archiveChannel(channel));
-    } catch (error) {
-      log.warn(`Channel of ${channel.label} could not be synced: ${errorMessage(error)}`);
-    }
-  };
-
-  await sync(
-    { route: DIGEST_ROUTE, name: DIGEST_CHANNEL, description: DIGEST_CHANNEL_TOPIC, label: "the digest" },
-    true,
-  );
   for (const topic of topics) {
-    await sync(
-      {
-        route: topicRoute(topic.id),
-        name: channelNameOf(topic.label),
-        description: topic.description,
-        label: `topic "${topic.label}"`,
-      },
-      topic.active,
-    );
+    try {
+      await (topic.active ? openChannel(topic) : archiveChannel(topic));
+    } catch (error) {
+      log.warn(`Channel of topic "${topic.label}" could not be synced: ${errorMessage(error)}`);
+    }
   }
 }
 

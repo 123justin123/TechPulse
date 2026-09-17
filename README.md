@@ -23,7 +23,7 @@ Three scheduled jobs share a SQLite database:
 
 1. **collect** fetches the RSS feeds, deduplicates articles by URL and stores a short excerpt.
 2. **score** asks the LLM to match each article to one or more topics, score it from 0 to 10 and summarize it.
-3. **digest** sends the articles above the threshold, grouped by topic, and routes each topic to its own channel.
+3. **digest** sends the articles above the threshold to the channel of each of their topics.
 
 ## Quick start
 
@@ -71,10 +71,10 @@ The LLM splits the sentence into distinct topics, each with a label and a precis
 
 ### Channels
 
-The bot creates a **TechPulse** category with a `#digest` channel, then one channel per topic as
-soon as the topic is added, each with its own webhook. `#digest` receives the full digest, where an
-article appears once under its main topic; each topic channel receives every article of that
-topic, including those where it is a secondary topic.
+There is no global channel: the bot creates one channel per topic in a **TechPulse** category as
+soon as the topic is added, each with its own webhook. The digest posts every retained article in
+the channel of each of its topics, with a mention of the other ones ("also in Linux"). An article
+that matches no topic is discarded.
 
 Removing a topic moves its channel to a read-only **TechPulse archive** category, and adding the
 topic again brings the channel back with its history. Channels are reconciled at startup, after
