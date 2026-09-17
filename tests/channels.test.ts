@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Channel, Digest } from "../src/channels/channel.js";
+import type { Channel, Digest, TopicState } from "../src/channels/channel.js";
 import { combineChannels, createChannel } from "../src/channels/index.js";
+import { createTopicRoutes } from "../src/channels/routes.js";
 import type { CommandHandler } from "../src/commands.js";
-import { fakeChannel, recordingLog } from "./helpers.js";
+import { fakeChannel, insertTopic, memoryDb, recordingLog } from "./helpers.js";
 
-const DIGEST: Digest = { date: "2026-09-12", threshold: 6, totalConsidered: 0, groups: [] };
+const DIGEST: Digest = { date: "2026-09-12", threshold: 6, totalConsidered: 0, groups: [], topicGroups: [] };
+const FINANCE: TopicState = { id: 1, label: "Finance", description: "Definition.", active: true };
 
 function failingChannel(name: string): Channel {
   const { channel } = fakeChannel({ failWith: new Error(`${name} is down`) });
@@ -46,6 +48,48 @@ describe("combineChannels", () => {
     await combineChannels([listening, fakeChannel().channel], recordingLog().log).listen?.(handler);
     assert.deepEqual(handlers, [handler]);
   });
+
+  it("syncs topics on every channel that supports it and logs a failure without throwing", async () => {
+    const synced: (readonly TopicState[])[] = [];
+    const syncing: Channel = {
+      ...fakeChannel().channel,
+      async syncTopics(topics) {
+        synced.push(topics);
+      },
+    };
+    const broken: Channel = {
+      ...fakeChannel().channel,
+      name: "slack",
+      async syncTopics() {
+        throw new Error("slack is down");
+      },
+    };
+    const { log, lines } = recordingLog();
+
+    await combineChannels([syncing, broken, fakeChannel().channel], log).syncTopics?.([FINANCE]);
+
+    assert.deepEqual(synced, [[FINANCE]]);
+    assert.ok(lines.some((line) => line.includes("Topics could not be synced on slack: slack is down")));
+  });
+});
+
+describe("createTopicRoutes", () => {
+  it("stores one target per channel and topic", () => {
+    const db = memoryDb();
+    const topicId = insertTopic(db, "Finance");
+    const discord = createTopicRoutes(db, "discord");
+    const slack = createTopicRoutes(db, "slack");
+
+    discord.set(topicId, "first");
+    discord.set(topicId, "second");
+    slack.set(topicId, "other");
+
+    assert.equal(discord.get(topicId), "second");
+    assert.equal(slack.get(topicId), "other");
+    discord.delete(topicId);
+    assert.equal(discord.get(topicId), undefined);
+    assert.equal(slack.get(topicId), "other");
+  });
 });
 
 describe("createChannel", () => {
@@ -55,7 +99,7 @@ describe("createChannel", () => {
         name: "discord",
         settings: { webhookUrl: "https://discord.test/webhook", botToken: undefined, allowedUserIds: [] },
       },
-      recordingLog().log,
+      { db: memoryDb(), log: recordingLog().log },
     );
     assert.equal(channel.name, "discord");
   });

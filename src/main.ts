@@ -11,6 +11,7 @@ import { createScheduler } from "./scheduler.js";
 import { scorePending } from "./scoring.js";
 import { createPageDescriber } from "./sources/enrich.js";
 import { collectAll, loadSources } from "./sources/index.js";
+import { listTopics } from "./topics.js";
 
 function readConfigOrExit(): Config {
   try {
@@ -30,9 +31,12 @@ const db = openDatabase(config.files.database);
 const http = createHttp();
 const llm = createLlmProvider(config.llm);
 const channel = combineChannels(
-  config.channels.map((channelConfig) => createChannel(channelConfig, log)),
+  config.channels.map((channelConfig) => createChannel(channelConfig, { db, log })),
   log.child("channels"),
 );
+const syncTopics = async (): Promise<void> => {
+  await channel.syncTopics?.(listTopics(db));
+};
 
 const scheduler = createScheduler({
   log: log.child("scheduler"),
@@ -66,7 +70,10 @@ const scheduler = createScheduler({
       name: "digest",
       cron: config.cron.digest,
       runOnStart: false,
-      run: () => sendDigest({ db, channel, settings: config.digest }),
+      run: async () => {
+        await syncTopics();
+        return sendDigest({ db, channel, settings: config.digest });
+      },
     },
   ],
 });
@@ -83,8 +90,10 @@ await channel.listen?.(
     language: config.language,
     rescoreWindowHours: config.scoring.rescoreWindowHours,
     runJob: (job) => scheduler.runNow(job),
+    syncTopics,
   }),
 );
+await syncTopics();
 scheduler.start();
 
 let isShuttingDown = false;

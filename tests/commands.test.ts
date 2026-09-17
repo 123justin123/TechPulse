@@ -16,11 +16,15 @@ function setup({
   const { llm, calls } = fakeLlm(respond);
   const ranJobs: JobName[] = [];
   const db = memoryDb();
+  let syncCount = 0;
   const handle = createCommandHandler({
     db,
     llm,
     language: TEST_LANGUAGE,
     rescoreWindowHours: 48,
+    syncTopics: async () => {
+      syncCount++;
+    },
     runJob:
       runJob ??
       (async (job) => {
@@ -28,7 +32,7 @@ function setup({
         return `Summary of ${job}.`;
       }),
   });
-  return { handle, calls, ranJobs, db };
+  return { handle, calls, ranJobs, db, syncCount: () => syncCount };
 }
 
 describe("command handler", () => {
@@ -56,6 +60,16 @@ describe("command handler", () => {
 
     assert.deepEqual(reply.at(-1), { body: "2 articles from the last 48 h will be rescored on the next score run." });
     assert.deepEqual(statusCounts(db), { pending: 2 });
+  });
+
+  it("syncs the channels after adding or disabling a topic, not after a failed removal", async () => {
+    const { handle, syncCount } = setup();
+    await handle({ name: "topic-add", phrase: "finance" });
+    assert.equal(syncCount(), 1);
+    await handle({ name: "topic-remove", label: "Finance" });
+    assert.equal(syncCount(), 2);
+    await handle({ name: "topic-remove", label: "Finance" });
+    assert.equal(syncCount(), 2);
   });
 
   it("asks for a sentence instead of calling the LLM for nothing", async () => {

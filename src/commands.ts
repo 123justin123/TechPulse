@@ -32,6 +32,7 @@ export interface CommandHandlerDependencies {
   language: string;
   rescoreWindowHours: number;
   runJob: (job: JobName) => Promise<string>;
+  syncTopics: () => Promise<void>;
 }
 
 const text = (body: string): CommandReply => [{ body }];
@@ -42,12 +43,14 @@ export function createCommandHandler({
   language,
   rescoreWindowHours,
   runJob,
+  syncTopics,
 }: CommandHandlerDependencies): CommandHandler {
   return async (command) => {
     try {
       switch (command.name) {
         case "topic-add": {
           const topics = await addTopics({ db, llm, language }, command.phrase);
+          await syncTopics();
           const requeuedCount = requeueRecentItems(db, rescoreWindowHours);
           const reply: CommandReply = topics.map((topic) => ({
             title: `${topicOutcome(topic)}: ${topic.label}`,
@@ -62,9 +65,9 @@ export function createCommandHandler({
         }
 
         case "topic-remove":
-          return removeTopic(db, command.label)
-            ? text(`Topic "${command.label}" disabled. Already classified articles keep it.`)
-            : text(`No active topic named "${command.label}".`);
+          if (!removeTopic(db, command.label)) return text(`No active topic named "${command.label}".`);
+          await syncTopics();
+          return text(`Topic "${command.label}" disabled. Already classified articles keep it.`);
 
         case "topic-list": {
           const topics = listTopics(db);

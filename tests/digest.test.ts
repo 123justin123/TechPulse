@@ -62,18 +62,31 @@ describe("sendDigest", () => {
     assert.deepEqual(statusCounts(db), { sent: 3, processed: 1, discarded: 2 });
   });
 
-  it("shows an article once, under its main topic, and lists its other topics", async () => {
+  it("shows an article once in the global view, under its main topic, with all its topics", async () => {
     const db = scoredDb();
     const { channel, sent } = fakeChannel();
     await sendDigest({ db, channel, settings: SETTINGS, now: NOW });
     const items = sent[0]?.groups.flatMap((group) =>
-      group.items.map((item) => [group.topic, item.score, item.otherTopics]),
+      group.items.map((item) => [group.topicId, group.topic, item.score, item.topics]),
     );
     assert.deepEqual(items, [
-      ["Finance", 9, []],
-      ["Finance", 7, []],
-      ["Linux", 8, ["Finance"]],
+      [1, "Finance", 9, ["Finance"]],
+      [1, "Finance", 7, ["Finance"]],
+      [2, "Linux", 8, ["Linux", "Finance"]],
     ]);
+  });
+
+  it("lists an article under every one of its topics in the per-topic view", async () => {
+    const db = scoredDb();
+    const { channel, sent } = fakeChannel();
+    await sendDigest({ db, channel, settings: SETTINGS, now: NOW });
+    assert.deepEqual(
+      sent[0]?.topicGroups.map((group) => [group.topicId, group.topic, group.items.map((item) => item.score)]),
+      [
+        [1, "Finance", [9, 8, 7]],
+        [2, "Linux", [8]],
+      ],
+    );
   });
 
   it("groups articles without a topic under the unclassified section", async () => {

@@ -20,7 +20,7 @@ describe("database migrations", () => {
     insert.run("Classified", "https://example.test/a", 8, 1);
     insert.run("Unclassified", "https://example.test/b", 2, null);
 
-    migrate(db);
+    migrate(db, 2);
 
     assert.equal(schemaVersion(db), 2);
     assert.deepEqual(db.prepare("SELECT id, title, score FROM raw_items ORDER BY id").all(), [

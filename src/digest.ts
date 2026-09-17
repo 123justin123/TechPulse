@@ -1,4 +1,4 @@
-import type { Channel, Digest, DigestGroup } from "./channels/channel.js";
+import type { Channel, Digest, DigestGroup, DigestItem } from "./channels/channel.js";
 import type { Db } from "./db.js";
 
 export const UNCLASSIFIED_TOPIC = "Unclassified";
@@ -16,7 +16,12 @@ interface Candidate {
   summary: string | null;
   source: string;
   sourceRef: string | null;
-  topics: string[];
+  topics: CandidateTopic[];
+}
+
+interface CandidateTopic {
+  id: number;
+  label: string;
 }
 
 type CandidateRow = Omit<Candidate, "topics">;
@@ -46,7 +51,8 @@ export async function sendDigest({
     date: now.toISOString().slice(0, 10),
     threshold: settings.threshold,
     totalConsidered: candidates.length,
-    groups: groupByTopic(retained),
+    groups: groupByMainTopic(retained),
+    topicGroups: groupByEveryTopic(retained),
   };
 
   await channel.send(digest);
@@ -77,39 +83,56 @@ function loadCandidates(db: Db): Candidate[] {
 
   const topicRows = db
     .prepare(
-      `SELECT it.item_id AS itemId, t.label
+      `SELECT it.item_id AS itemId, t.id, t.label
        FROM item_topics it
        JOIN topics t ON t.id = it.topic_id
        JOIN raw_items i ON i.id = it.item_id
        WHERE i.status = 'processed'
        ORDER BY it.item_id, it.position`,
     )
-    .all() as { itemId: number; label: string }[];
+    .all() as ({ itemId: number } & CandidateTopic)[];
 
-  const topicsByItem = new Map<number, string[]>();
-  for (const { itemId, label } of topicRows) {
-    topicsByItem.set(itemId, [...(topicsByItem.get(itemId) ?? []), label]);
+  const topicsByItem = new Map<number, CandidateTopic[]>();
+  for (const { itemId, ...topic } of topicRows) {
+    topicsByItem.set(itemId, [...(topicsByItem.get(itemId) ?? []), topic]);
   }
   return rows.map((row) => ({ ...row, topics: topicsByItem.get(row.id) ?? [] }));
 }
 
-function groupByTopic(items: readonly Candidate[]): DigestGroup[] {
-  const groups = new Map<string, DigestGroup["items"]>();
-  for (const item of items) {
-    const [mainTopic = UNCLASSIFIED_TOPIC, ...otherTopics] = item.topics;
-    const groupItems = groups.get(mainTopic) ?? [];
-    groupItems.push({
-      title: item.title,
-      url: item.url,
-      score: item.score,
-      summary: item.summary ?? "",
-      source: item.sourceRef ?? item.source,
-      otherTopics,
-    });
-    groups.set(mainTopic, groupItems);
-  }
+function groupByMainTopic(items: readonly Candidate[]): DigestGroup[] {
+  return sortGroups(groupItems(items, (item) => [item.topics[0] ?? { id: null, label: UNCLASSIFIED_TOPIC }]));
+}
 
-  return [...groups.entries()]
-    .map(([topic, groupItems]) => ({ topic, items: groupItems }))
-    .sort((a, b) => (b.items[0]?.score ?? 0) - (a.items[0]?.score ?? 0));
+function groupByEveryTopic(items: readonly Candidate[]): DigestGroup[] {
+  return sortGroups(groupItems(items, (item) => item.topics));
+}
+
+function groupItems(
+  items: readonly Candidate[],
+  topicsOf: (item: Candidate) => { id: number | null; label: string }[],
+): DigestGroup[] {
+  const groups = new Map<string, DigestGroup>();
+  for (const item of items) {
+    for (const { id, label } of topicsOf(item)) {
+      const group = groups.get(label) ?? { topicId: id, topic: label, items: [] };
+      group.items.push(toDigestItem(item));
+      groups.set(label, group);
+    }
+  }
+  return [...groups.values()];
+}
+
+function toDigestItem(item: Candidate): DigestItem {
+  return {
+    title: item.title,
+    url: item.url,
+    score: item.score,
+    summary: item.summary ?? "",
+    source: item.sourceRef ?? item.source,
+    topics: item.topics.map((topic) => topic.label),
+  };
+}
+
+function sortGroups(groups: DigestGroup[]): DigestGroup[] {
+  return groups.sort((a, b) => (b.items[0]?.score ?? 0) - (a.items[0]?.score ?? 0));
 }

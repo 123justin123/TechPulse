@@ -23,7 +23,7 @@ Three scheduled jobs share a SQLite database:
 
 1. **collect** fetches the RSS feeds, deduplicates articles by URL and stores a short excerpt.
 2. **score** asks the LLM to match each article to one or more topics, score it from 0 to 10 and summarize it.
-3. **digest** sends the articles above the threshold, grouped by topic.
+3. **digest** sends the articles above the threshold, grouped by topic, and routes each topic to its own channel.
 
 ## Quick start
 
@@ -48,10 +48,12 @@ Articles and topics are stored in the `techpulse-data` Docker volume.
 
 ### Discord bot (optional)
 
-Without a bot, the digest is still sent; only the commands are disabled.
+Without a bot, the digest is still sent; only the commands and the topic channels are disabled.
 
 1. On the [Discord developer portal](https://discord.com/developers/applications): New Application › **Bot** › Reset Token.
-2. **OAuth2 › URL Generator**: check `bot` and `applications.commands`, open the URL and invite the bot.
+2. **OAuth2 › URL Generator**: check `bot` and `applications.commands`, then the bot permissions *View Channels*,
+   *Send Messages*, *Manage Channels*, *Manage Webhooks* and *Manage Roles*. Open the URL and invite the bot
+   to the server of `DISCORD_WEBHOOK_URL`.
 3. Your user ID: Discord settings › Advanced › Developer Mode, then right-click your name › Copy User ID.
 
 ## Usage
@@ -67,6 +69,17 @@ Each channel exposes the same commands in its own syntax. On Discord, they are s
 
 Example: `/topic add phrase: Security news: vulnerabilities, attacks and data breaches`.
 The LLM splits the sentence into distinct topics, each with a label and a precise definition used for scoring.
+
+### Topic channels
+
+With a bot, each topic gets its own channel in a **TechPulse** category, created with a webhook
+as soon as the topic is added. The full digest still goes to `DISCORD_WEBHOOK_URL`, where an
+article appears once under its main topic; each topic channel receives every article of that
+topic, including those where it is a secondary topic.
+
+Removing a topic moves its channel to a read-only **TechPulse archive** category, and adding the
+topic again brings the channel back with its history. Channels are reconciled at startup, after
+each `/topic` command and before each digest: a channel or webhook deleted by hand is recreated.
 
 ## Configuration
 
@@ -137,6 +150,9 @@ src/
 Dependencies are built once in `main.ts` and passed down, so every module is tested with
 fakes. `llm/` and `channels/` each expose one interface: adding Mistral or Telegram means
 one new file registered in that folder's `index.ts`.
+
+Topic channels are reconciled rather than driven by events: `syncTopics` compares the topics
+with what the channel already has and fixes the difference, so it can run at any time.
 
 LLM failures are classified: an unusable answer costs the batch an attempt, while an outage
 or a wrong API key stops scoring without penalizing any article.

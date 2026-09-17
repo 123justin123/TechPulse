@@ -1,8 +1,10 @@
 import type { CommandHandler } from "../commands.js";
+import type { Db } from "../db.js";
 import type { EnvReader } from "../env.js";
 import { errorMessage, type Logger } from "../logger.js";
-import type { Channel, ChannelDefinition, Digest } from "./channel.js";
+import type { Channel, ChannelDefinition, Digest, TopicState } from "./channel.js";
 import { discordChannel } from "./discord.js";
+import { createTopicRoutes } from "./routes.js";
 
 const CHANNEL_DEFINITIONS = {
   discord: discordChannel,
@@ -21,9 +23,9 @@ export function readChannelConfig(name: ChannelName, env: EnvReader): ChannelCon
   return { name, settings: CHANNEL_DEFINITIONS[name].readSettings(env) };
 }
 
-export function createChannel({ name, settings }: ChannelConfig, log: Logger): Channel {
+export function createChannel({ name, settings }: ChannelConfig, { db, log }: { db: Db; log: Logger }): Channel {
   const definition = CHANNEL_DEFINITIONS[name] as ChannelDefinition<unknown>;
-  return definition.create(settings, log.child(name));
+  return definition.create(settings, { log: log.child(name), routes: createTopicRoutes(db, name) });
 }
 
 export function combineChannels(channels: readonly Channel[], log: Logger): Channel {
@@ -44,6 +46,15 @@ export function combineChannels(channels: readonly Channel[], log: Logger): Chan
 
     async listen(handler: CommandHandler) {
       await Promise.all(channels.map((channel) => channel.listen?.(handler)));
+    },
+
+    async syncTopics(topics: readonly TopicState[]) {
+      const results = await Promise.allSettled(channels.map((channel) => channel.syncTopics?.(topics)));
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          log.warn(`Topics could not be synced on ${channels[index]?.name}: ${errorMessage(result.reason)}`);
+        }
+      });
     },
 
     async close() {

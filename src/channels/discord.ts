@@ -19,7 +19,9 @@ import {
 import type { EnvReader } from "../env.js";
 import { sleep } from "../http.js";
 import { errorMessage, type Logger } from "../logger.js";
-import type { Channel, ChannelDefinition, Digest } from "./channel.js";
+import type { Channel, ChannelDefinition, Digest, DigestGroup, TopicState } from "./channel.js";
+import { createGuildApi, type DiscordGuildApi, readRoute, syncTopicChannels } from "./discord-topics.js";
+import type { TopicRoutes } from "./routes.js";
 
 const MAX_MESSAGE_LENGTH = 1900;
 const MAX_EMBEDS_PER_MESSAGE = 10;
@@ -132,21 +134,53 @@ export const discordChannel: ChannelDefinition<DiscordSettings> = {
     return { webhookUrl, botToken, allowedUserIds };
   },
 
-  create: (settings, log) => new DiscordChannel(settings, log),
+  create: (settings, { log, routes }) => new DiscordChannel(settings, log, routes),
 };
 
 export class DiscordChannel implements Channel {
   readonly name = "discord";
   private client: Client | null = null;
+  private guildApi: Promise<DiscordGuildApi> | undefined;
+  private pendingSync: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly settings: DiscordSettings,
     private readonly log: Logger,
+    private readonly routes: TopicRoutes,
   ) {}
 
   async send(digest: Digest): Promise<void> {
     for (const payload of renderDigest(digest)) {
       await postWebhook(this.settings.webhookUrl, payload, this.log);
+    }
+
+    for (const group of digest.topicGroups) {
+      const route = group.topicId === null ? undefined : readRoute(this.routes.get(group.topicId));
+      if (!route) continue;
+      try {
+        for (const payload of renderTopicDigest(digest, group)) {
+          await postWebhook(route.webhookUrl, payload, this.log);
+        }
+      } catch (error) {
+        this.log.warn(`Digest of topic "${group.topic}" could not be posted to its channel: ${errorMessage(error)}`);
+      }
+    }
+  }
+
+  syncTopics(topics: readonly TopicState[]): Promise<void> {
+    this.pendingSync = this.pendingSync.then(() => this.syncTopicsNow(topics));
+    return this.pendingSync;
+  }
+
+  private async syncTopicsNow(topics: readonly TopicState[]): Promise<void> {
+    const { client, log } = this;
+    if (!client) return;
+    try {
+      this.guildApi ??= createGuildApi(client, this.settings.webhookUrl, log);
+      await syncTopicChannels({ api: await this.guildApi, routes: this.routes, topics, log });
+    } catch (error) {
+      this.guildApi = undefined;
+      log.error(`Topic channels could not be synced: ${errorMessage(error)}`);
     }
   }
 
@@ -243,9 +277,7 @@ export function renderReply(reply: CommandReply): string[] {
 }
 
 export function renderDigest(digest: Digest): WebhookPayload[] {
-  const formattedDate = new Intl.DateTimeFormat("en-GB", { dateStyle: "full" }).format(
-    new Date(`${digest.date}T12:00:00`),
-  );
+  const formattedDate = formatDate(digest.date);
   const retainedCount = digest.groups.reduce((total, group) => total + group.items.length, 0);
 
   if (retainedCount === 0) {
@@ -262,25 +294,36 @@ export function renderDigest(digest: Digest): WebhookPayload[] {
     `**TechPulse — ${formattedDate}**\n` +
     `${retainedCount} articles retained out of ${digest.totalConsidered} analyzed · threshold ${digest.threshold}/10`;
 
-  const embeds = digest.groups.flatMap((group): DiscordEmbed[] => {
-    const itemBlocks = group.items.map(
-      (item) =>
-        `**[${item.score}/10 — ${escapeMarkdown(item.title)}](${escapeUrl(item.url)})**\n` +
-        `${item.summary}\n*${[item.source, ...alsoIn(item.otherTopics)].join(" · ")}*`,
-    );
-    const color = colorForScore(group.items[0]?.score ?? 0);
-    return packBlocks(itemBlocks, MAX_EMBED_DESCRIPTION_LENGTH).map((description, index) => ({
-      title: index === 0 ? group.topic.slice(0, MAX_EMBED_TITLE_LENGTH) : undefined,
-      description,
-      color,
-    }));
-  });
-
+  const embeds = digest.groups.flatMap((group) => groupEmbeds(group, { titled: true }));
   return packEmbeds(embeds, header);
 }
 
-function alsoIn(topics: readonly string[]): string[] {
-  return topics.length > 0 ? [`also in ${topics.map(escapeMarkdown).join(", ")}`] : [];
+export function renderTopicDigest(digest: Digest, group: DigestGroup): WebhookPayload[] {
+  const header =
+    `**${escapeMarkdown(group.topic)} — ${formatDate(digest.date)}**\n` +
+    `${group.items.length} articles · threshold ${digest.threshold}/10`;
+  return packEmbeds(groupEmbeds(group, { titled: false }), header);
+}
+
+function groupEmbeds(group: DigestGroup, { titled }: { titled: boolean }): DiscordEmbed[] {
+  const itemBlocks = group.items.map((item) => {
+    const otherTopics = item.topics.filter((topic) => topic !== group.topic);
+    const alsoIn = otherTopics.length > 0 ? [`also in ${otherTopics.map(escapeMarkdown).join(", ")}`] : [];
+    return (
+      `**[${item.score}/10 — ${escapeMarkdown(item.title)}](${escapeUrl(item.url)})**\n` +
+      `${item.summary}\n*${[item.source, ...alsoIn].join(" · ")}*`
+    );
+  });
+  const color = colorForScore(group.items[0]?.score ?? 0);
+  return packBlocks(itemBlocks, MAX_EMBED_DESCRIPTION_LENGTH).map((description, index) => ({
+    title: titled && index === 0 ? group.topic.slice(0, MAX_EMBED_TITLE_LENGTH) : undefined,
+    description,
+    color,
+  }));
+}
+
+function formatDate(date: string): string {
+  return new Intl.DateTimeFormat("en-GB", { dateStyle: "full" }).format(new Date(`${date}T12:00:00`));
 }
 
 function colorForScore(score: number): number {
