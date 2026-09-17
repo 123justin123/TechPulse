@@ -34,6 +34,7 @@ describe("renderDigest", () => {
             score: 10 - itemIndex,
             summary: LONG_SUMMARY,
             source: "Test source",
+            otherTopics: [],
           })),
         })),
       ),
@@ -65,6 +66,7 @@ describe("renderDigest", () => {
             score: 8,
             summary: LONG_SUMMARY,
             source: "Source",
+            otherTopics: [],
           })),
         },
       ]),
@@ -81,11 +83,41 @@ describe("renderDigest", () => {
       digestOf([
         {
           topic: "Wiki",
-          items: [{ title: "Page", url: "https://wiki.test/A_(b)", score: 9, summary: "Summary.", source: "Wiki" }],
+          items: [
+            {
+              title: "Page",
+              url: "https://wiki.test/A_(b)",
+              score: 9,
+              summary: "Summary.",
+              source: "Wiki",
+              otherTopics: [],
+            },
+          ],
         },
       ]),
     );
     assert.match(message?.embeds?.[0]?.description ?? "", /\(https:\/\/wiki\.test\/A_%28b%29\)/);
+  });
+
+  it("mentions the other topics of an article next to its source", () => {
+    const [message] = renderDigest(
+      digestOf([
+        {
+          topic: "Rust",
+          items: [
+            {
+              title: "Rust in the kernel",
+              url: "https://example.test/rust",
+              score: 8,
+              summary: "Summary.",
+              source: "LWN",
+              otherTopics: ["Linux", "C_Lang"],
+            },
+          ],
+        },
+      ]),
+    );
+    assert.match(message?.embeds?.[0]?.description ?? "", /\*LWN · also in Linux, C\\_Lang\*$/);
   });
 
   it("renders an empty digest as a single text message", () => {
@@ -175,7 +207,16 @@ describe("DiscordChannel", () => {
       digestOf([
         {
           topic: "Finance",
-          items: [{ title: "Article", url: "https://example.test/a", score: 9, summary: "Summary.", source: "Blog" }],
+          items: [
+            {
+              title: "Article",
+              url: "https://example.test/a",
+              score: 9,
+              summary: "Summary.",
+              source: "Blog",
+              otherTopics: [],
+            },
+          ],
         },
       ]),
     );

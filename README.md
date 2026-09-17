@@ -22,7 +22,7 @@ collect ──► score ──► digest ──► channels
 Three scheduled jobs share a SQLite database:
 
 1. **collect** fetches the RSS feeds, deduplicates articles by URL and stores a short excerpt.
-2. **score** asks the LLM to match each article to a topic, score it from 0 to 10 and summarize it.
+2. **score** asks the LLM to match each article to one or more topics, score it from 0 to 10 and summarize it.
 3. **digest** sends the articles above the threshold, grouped by topic.
 
 ## Quick start

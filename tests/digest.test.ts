@@ -10,19 +10,23 @@ function scoredDb() {
   const finance = insertTopic(db, "Finance");
   const linux = insertTopic(db, "Linux");
   const ids = insertItems(db, 6);
-  const scores: [score: number, topicId: number | null][] = [
-    [9, finance],
-    [8, linux],
-    [7, finance],
-    [6, linux],
-    [5, null],
-    [2, finance],
+  const scores: [score: number, topicIds: number[]][] = [
+    [9, [finance]],
+    [8, [linux, finance]],
+    [7, [finance]],
+    [6, [linux]],
+    [5, []],
+    [2, [finance]],
   ];
   const markScored = db.prepare(
-    "UPDATE raw_items SET status = 'processed', score = ?, topic_id = ?, summary = 'Summary.' WHERE id = ?",
+    "UPDATE raw_items SET status = 'processed', score = ?, summary = 'Summary.' WHERE id = ?",
   );
-  scores.forEach(([score, topicId], index) => {
-    markScored.run(score, topicId, ids[index]);
+  const addTopic = db.prepare("INSERT INTO item_topics (item_id, topic_id, position) VALUES (?, ?, ?)");
+  scores.forEach(([score, topicIds], index) => {
+    markScored.run(score, ids[index]);
+    topicIds.forEach((topicId, position) => {
+      addTopic.run(ids[index], topicId, position);
+    });
   });
   return db;
 }
@@ -56,6 +60,20 @@ describe("sendDigest", () => {
       "the topic with the best score comes first",
     );
     assert.deepEqual(statusCounts(db), { sent: 3, processed: 1, discarded: 2 });
+  });
+
+  it("shows an article once, under its main topic, and lists its other topics", async () => {
+    const db = scoredDb();
+    const { channel, sent } = fakeChannel();
+    await sendDigest({ db, channel, settings: SETTINGS, now: NOW });
+    const items = sent[0]?.groups.flatMap((group) =>
+      group.items.map((item) => [group.topic, item.score, item.otherTopics]),
+    );
+    assert.deepEqual(items, [
+      ["Finance", 9, []],
+      ["Finance", 7, []],
+      ["Linux", 8, ["Finance"]],
+    ]);
   });
 
   it("groups articles without a topic under the unclassified section", async () => {

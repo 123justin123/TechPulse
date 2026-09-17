@@ -20,7 +20,7 @@ interface PendingItem {
 
 interface Verdict {
   index: number;
-  topic: string | null;
+  topics: string[];
   score: number;
   summary: string;
 }
@@ -30,18 +30,19 @@ function buildSystemPrompt(language: string): string {
 followed topics.
 
 For each article you receive an index, a title, its source and an excerpt. For each one,
-you return the topic it belongs to, a relevance score and a summary.
+you return the topics it belongs to, a relevance score and a summary.
 
-TOPIC: pick exactly one topic from the provided list, the one whose definition fits best.
-If the article does not belong to any topic in the list, return null. Never force an
-approximate match.
+TOPICS: list every topic from the provided list whose definition the article genuinely
+fits, the best fit first. Most articles fit one topic; add another only when the article
+is substantially about it too, not when it is merely mentioned. If the article does not
+belong to any topic in the list, return an empty list. Never force an approximate match.
 
 SCORE from 0 to 10, measuring relevance for THIS reader, not the general quality of the article:
   0-3  off-topic, or promotional content without technical substance
   4-5  loosely related to the reader's topics, optional reading
   6-7  interesting, worth reading
   8-10 must read: goes deep into one of the topics with real technical substance
-An article without a topic (null) never scores above 3. Be strict: a useful digest is a
+An article without any topic never scores above 3. Be strict: a useful digest is a
 short digest, and most articles in a feed are of no particular interest to anyone.
 
 SUMMARY: one or two factual sentences, written in ${language}, stating what the article
@@ -69,7 +70,9 @@ function buildVerdictSchema(topics: readonly Topic[]) {
     verdicts: z.array(
       z.object({
         index: z.number().int().describe("Index of the article, as given in the prompt."),
-        topic: z.enum(topics.map((topic) => topic.label)).nullable(),
+        topics: z
+          .array(z.enum(topics.map((topic) => topic.label)))
+          .describe("Topics the article belongs to, the best fit first. Empty when none fits."),
         score: z.number().int().min(0).max(10),
         summary: z.string(),
       }),
@@ -153,9 +156,11 @@ function applyVerdicts(
 ): number {
   const markProcessed = db.prepare(
     `UPDATE raw_items
-     SET status = 'processed', topic_id = ?, score = ?, summary = ?, processed_at = datetime('now')
+     SET status = 'processed', score = ?, summary = ?, processed_at = datetime('now')
      WHERE id = ?`,
   );
+  const clearTopics = db.prepare("DELETE FROM item_topics WHERE item_id = ?");
+  const addTopic = db.prepare("INSERT INTO item_topics (item_id, topic_id, position) VALUES (?, ?, ?)");
   const verdictsByIndex = new Map(verdicts.map((verdict) => [verdict.index, verdict]));
   const unanswered = batch.filter((_, index) => !verdictsByIndex.has(index));
 
@@ -163,8 +168,12 @@ function applyVerdicts(
     batch.forEach((item, index) => {
       const verdict = verdictsByIndex.get(index);
       if (!verdict) return;
-      const topicId = verdict.topic ? (topicIds.get(verdict.topic) ?? null) : null;
-      markProcessed.run(topicId, verdict.score, verdict.summary, item.id);
+      markProcessed.run(verdict.score, verdict.summary, item.id);
+      clearTopics.run(item.id);
+      const itemTopicIds = new Set(verdict.topics.flatMap((label) => topicIds.get(label) ?? []));
+      [...itemTopicIds].forEach((topicId, position) => {
+        addTopic.run(item.id, topicId, position);
+      });
     });
     chargeAttempt(db, unanswered, maxAttempts);
     return batch.length - unanswered.length;

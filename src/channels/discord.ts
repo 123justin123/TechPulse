@@ -266,7 +266,7 @@ export function renderDigest(digest: Digest): WebhookPayload[] {
     const itemBlocks = group.items.map(
       (item) =>
         `**[${item.score}/10 — ${escapeMarkdown(item.title)}](${escapeUrl(item.url)})**\n` +
-        `${item.summary}\n*${item.source}*`,
+        `${item.summary}\n*${[item.source, ...alsoIn(item.otherTopics)].join(" · ")}*`,
     );
     const color = colorForScore(group.items[0]?.score ?? 0);
     return packBlocks(itemBlocks, MAX_EMBED_DESCRIPTION_LENGTH).map((description, index) => ({
@@ -277,6 +277,10 @@ export function renderDigest(digest: Digest): WebhookPayload[] {
   });
 
   return packEmbeds(embeds, header);
+}
+
+function alsoIn(topics: readonly string[]): string[] {
+  return topics.length > 0 ? [`also in ${topics.map(escapeMarkdown).join(", ")}`] : [];
 }
 
 function colorForScore(score: number): number {

@@ -8,6 +8,7 @@ export interface DigestItem {
   score: number;
   summary: string;
   source: string;
+  otherTopics: string[];
 }
 
 export interface DigestGroup {

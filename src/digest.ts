@@ -16,8 +16,10 @@ interface Candidate {
   summary: string | null;
   source: string;
   sourceRef: string | null;
-  topic: string;
+  topics: string[];
 }
+
+type CandidateRow = Omit<Candidate, "topics">;
 
 export async function sendDigest({
   db,
@@ -30,16 +32,7 @@ export async function sendDigest({
   settings: DigestSettings;
   now?: Date;
 }): Promise<string> {
-  const candidates = db
-    .prepare(
-      `SELECT i.id, i.title, i.url, i.score, i.summary, i.source, i.source_ref AS sourceRef,
-              COALESCE(t.label, ?) AS topic
-       FROM raw_items i
-       LEFT JOIN topics t ON t.id = i.topic_id
-       WHERE i.status = 'processed'
-       ORDER BY i.score DESC, i.id DESC`,
-    )
-    .all(UNCLASSIFIED_TOPIC) as Candidate[];
+  const candidates = loadCandidates(db);
 
   if (candidates.length === 0) {
     return "No article scored since the last digest: nothing to send.";
@@ -72,18 +65,48 @@ export async function sendDigest({
   );
 }
 
+function loadCandidates(db: Db): Candidate[] {
+  const rows = db
+    .prepare(
+      `SELECT id, title, url, score, summary, source, source_ref AS sourceRef
+       FROM raw_items
+       WHERE status = 'processed'
+       ORDER BY score DESC, id DESC`,
+    )
+    .all() as CandidateRow[];
+
+  const topicRows = db
+    .prepare(
+      `SELECT it.item_id AS itemId, t.label
+       FROM item_topics it
+       JOIN topics t ON t.id = it.topic_id
+       JOIN raw_items i ON i.id = it.item_id
+       WHERE i.status = 'processed'
+       ORDER BY it.item_id, it.position`,
+    )
+    .all() as { itemId: number; label: string }[];
+
+  const topicsByItem = new Map<number, string[]>();
+  for (const { itemId, label } of topicRows) {
+    topicsByItem.set(itemId, [...(topicsByItem.get(itemId) ?? []), label]);
+  }
+  return rows.map((row) => ({ ...row, topics: topicsByItem.get(row.id) ?? [] }));
+}
+
 function groupByTopic(items: readonly Candidate[]): DigestGroup[] {
   const groups = new Map<string, DigestGroup["items"]>();
   for (const item of items) {
-    const groupItems = groups.get(item.topic) ?? [];
+    const [mainTopic = UNCLASSIFIED_TOPIC, ...otherTopics] = item.topics;
+    const groupItems = groups.get(mainTopic) ?? [];
     groupItems.push({
       title: item.title,
       url: item.url,
       score: item.score,
       summary: item.summary ?? "",
       source: item.sourceRef ?? item.source,
+      otherTopics,
     });
-    groups.set(item.topic, groupItems);
+    groups.set(mainTopic, groupItems);
   }
 
   return [...groups.entries()]

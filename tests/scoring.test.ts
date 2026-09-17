@@ -24,12 +24,23 @@ function verdictsFor(params: AnyParams, { skipIndex }: { skipIndex?: number } = 
       const isUnclassified = index % 3 === 2;
       return {
         index,
-        topic: isUnclassified ? null : "Finance",
+        topics: isUnclassified ? [] : ["Finance"],
         score: isUnclassified ? 1 : 9 - (index % 3),
         summary: `Summary ${index}.`,
       };
     }).filter((verdict) => verdict.index !== skipIndex),
   };
+}
+
+function topicLabelsOf(db: Db, itemId: number | undefined): string[] {
+  return (
+    db
+      .prepare(
+        `SELECT t.label FROM item_topics it JOIN topics t ON t.id = it.topic_id
+         WHERE it.item_id = ? ORDER BY it.position`,
+      )
+      .all(itemId) as { label: string }[]
+  ).map((row) => row.label);
 }
 
 function setup(itemCount: number) {
@@ -70,8 +81,24 @@ describe("scorePending", () => {
     assert.match(prompt, /^\[7\] TITLE: Title article 7$/m);
 
     assert.deepEqual(statusCounts(db), { processed: 16 });
-    const unclassified = db.prepare("SELECT topic_id, score FROM raw_items WHERE title = 'Title article 2'").get();
-    assert.deepEqual(unclassified, { topic_id: null, score: 1 });
+    const unclassified = db.prepare("SELECT id, score FROM raw_items WHERE title = 'Title article 2'").get() as {
+      id: number;
+      score: number;
+    };
+    assert.equal(unclassified.score, 1);
+    assert.deepEqual(topicLabelsOf(db, unclassified.id), []);
+  });
+
+  it("stores every topic of an article in the order given by the LLM, without duplicates", async () => {
+    const { db, ids, log } = setup(1);
+    insertTopic(db, "Linux", "The Linux kernel.");
+    const { llm } = fakeLlm(() => ({
+      verdicts: [{ index: 0, topics: ["Linux", "Finance", "Linux"], score: 8, summary: "Summary." }],
+    }));
+
+    await score(db, llm, log);
+
+    assert.deepEqual(topicLabelsOf(db, ids[0]), ["Linux", "Finance"]);
   });
 
   it("keeps an article without verdict pending and charges it an attempt", async () => {
@@ -101,7 +128,9 @@ describe("scorePending", () => {
   it("charges an attempt to a batch with unusable output, then moves on", async () => {
     const { db, log } = setup(16);
     const { llm } = fakeLlm((params, call) =>
-      call === 1 ? { verdicts: [{ index: 0, topic: "Made-up topic", score: 5, summary: "x" }] } : verdictsFor(params),
+      call === 1
+        ? { verdicts: [{ index: 0, topics: ["Made-up topic"], score: 5, summary: "x" }] }
+        : verdictsFor(params),
     );
 
     const summary = await score(db, llm, log);
