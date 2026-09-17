@@ -31,7 +31,7 @@ describe("migrate", () => {
     assert.deepEqual(await migrate(db), []);
 
     assert.deepEqual(await appliedNames(db), Object.keys(MIGRATIONS));
-    assert.deepEqual(await tableNames(db), ["channel_routes", "item_topics", "raw_items", "topics"]);
+    assert.deepEqual(await tableNames(db), ["item_topics", "raw_items", "topic_routes", "topics"]);
   });
 
   it("keeps labels case-insensitive and fills the default values of an article", async () => {

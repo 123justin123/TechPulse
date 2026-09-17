@@ -11,7 +11,7 @@ import {
   syncTopicChannels,
   TOPIC_CATEGORY,
 } from "../../../src/channels/discord/topic-channels.js";
-import { createChannelRoutes, topicRoute } from "../../../src/channels/routes.js";
+import { createTopicRoutes } from "../../../src/channels/routes.js";
 import { insertTopic, memoryDb, recordingLog } from "../../support/helpers.js";
 
 interface FakeCategory {
@@ -79,7 +79,7 @@ function fakeGuild() {
 
 async function setup() {
   const db = memoryDb();
-  const routes = createChannelRoutes(db, "discord");
+  const routes = createTopicRoutes(db, "discord");
   const guild = fakeGuild();
   const { log, lines } = recordingLog();
   const rust: TopicState = {
@@ -89,7 +89,7 @@ async function setup() {
     active: true,
   };
   const sync = (topics: TopicState[], api = guild.api) => syncTopicChannels({ api, routes, topics, log });
-  const routeOf = async (topicId: number) => readRoute(await routes.get(topicRoute(topicId)));
+  const routeOf = async (topicId: number) => readRoute(await routes.get(topicId));
   return { db, routes, guild, rust, sync, routeOf, lines };
 }
 
@@ -184,7 +184,7 @@ describe("syncTopicChannels", () => {
 
     await sync([{ ...rust, active: false }]);
 
-    assert.equal(await routes.get(topicRoute(rust.id)), undefined);
+    assert.equal(await routes.get(rust.id), undefined);
     assert.equal(guild.categoryNamed(ARCHIVE_CATEGORY), undefined, "no archive category for nothing");
   });
 
@@ -216,7 +216,7 @@ describe("syncTopicChannels", () => {
     assert.ok(
       lines.some((line) => line.includes('Channel of topic "Rust Lang" could not be synced: Missing Permissions')),
     );
-    assert.equal(await routes.get(topicRoute(rust.id)), undefined);
+    assert.equal(await routes.get(rust.id), undefined);
     assert.ok(await routeOf(linux.id));
   });
 });

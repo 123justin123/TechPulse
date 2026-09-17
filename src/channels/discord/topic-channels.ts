@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { errorMessage, type Logger } from "../../lib/logger.js";
 import type { TopicState } from "../channel.js";
-import { type ChannelRoutes, topicRoute } from "../routes.js";
+import type { TopicRoutes } from "../routes.js";
 
 export const TOPIC_CATEGORY = "TechPulse";
 export const ARCHIVE_CATEGORY = "TechPulse archive";
@@ -70,7 +70,7 @@ export async function syncTopicChannels({
   log,
 }: {
   api: DiscordGuildApi;
-  routes: ChannelRoutes;
+  routes: TopicRoutes;
   topics: readonly TopicState[];
   log: Logger;
 }): Promise<void> {
@@ -85,7 +85,7 @@ export async function syncTopicChannels({
   };
 
   const openChannel = async (topic: TopicState): Promise<void> => {
-    const route = readRoute(await routes.get(topicRoute(topic.id)));
+    const route = readRoute(await routes.get(topic.id));
     const parentId = await categoryId(TOPIC_CATEGORY, false);
     const existing = route && (await api.fetchTextChannel(route.channelId));
 
@@ -107,18 +107,15 @@ export async function syncTopicChannels({
 
     const keepsWebhook = route?.channelId === channel.id && (await api.hasWebhook(channel.id, route.webhookUrl));
     const webhookUrl = keepsWebhook ? route.webhookUrl : await api.createWebhook(channel.id);
-    await routes.set(
-      topicRoute(topic.id),
-      JSON.stringify({ channelId: channel.id, webhookUrl } satisfies WebhookRoute),
-    );
+    await routes.set(topic.id, JSON.stringify({ channelId: channel.id, webhookUrl } satisfies WebhookRoute));
   };
 
   const archiveChannel = async (topic: TopicState): Promise<void> => {
-    const route = readRoute(await routes.get(topicRoute(topic.id)));
+    const route = readRoute(await routes.get(topic.id));
     if (!route) return;
     const channel = await api.fetchTextChannel(route.channelId);
     if (!channel) {
-      await routes.delete(topicRoute(topic.id));
+      await routes.delete(topic.id);
       return;
     }
     const parentId = await categoryId(ARCHIVE_CATEGORY, true);

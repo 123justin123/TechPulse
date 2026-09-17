@@ -34,9 +34,9 @@ export interface ItemTopicsTable {
   position: number;
 }
 
-export interface ChannelRoutesTable {
+export interface TopicRoutesTable {
   channel: string;
-  route: string;
+  topic_id: number;
   target: string;
 }
 
@@ -44,7 +44,7 @@ export interface Database {
   topics: TopicsTable;
   raw_items: RawItemsTable;
   item_topics: ItemTopicsTable;
-  channel_routes: ChannelRoutesTable;
+  topic_routes: TopicRoutesTable;
 }
 
 export type Db = Kysely<Database>;

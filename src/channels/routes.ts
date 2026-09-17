@@ -1,37 +1,33 @@
 import type { Db } from "../db/schema.js";
 
-export function topicRoute(topicId: number): string {
-  return `topic:${topicId}`;
+export interface TopicRoutes {
+  get(topicId: number): Promise<string | undefined>;
+  set(topicId: number, target: string): Promise<void>;
+  delete(topicId: number): Promise<void>;
 }
 
-export interface ChannelRoutes {
-  get(route: string): Promise<string | undefined>;
-  set(route: string, target: string): Promise<void>;
-  delete(route: string): Promise<void>;
-}
-
-export function createChannelRoutes(db: Db, channel: string): ChannelRoutes {
+export function createTopicRoutes(db: Db, channel: string): TopicRoutes {
   return {
-    async get(route) {
+    async get(topicId) {
       const row = await db
-        .selectFrom("channel_routes")
+        .selectFrom("topic_routes")
         .select("target")
         .where("channel", "=", channel)
-        .where("route", "=", route)
+        .where("topic_id", "=", topicId)
         .executeTakeFirst();
       return row?.target;
     },
 
-    async set(route, target) {
+    async set(topicId, target) {
       await db
-        .insertInto("channel_routes")
-        .values({ channel, route, target })
-        .onConflict((conflict) => conflict.columns(["channel", "route"]).doUpdateSet({ target }))
+        .insertInto("topic_routes")
+        .values({ channel, topic_id: topicId, target })
+        .onConflict((conflict) => conflict.columns(["channel", "topic_id"]).doUpdateSet({ target }))
         .execute();
     },
 
-    async delete(route) {
-      await db.deleteFrom("channel_routes").where("channel", "=", channel).where("route", "=", route).execute();
+    async delete(topicId) {
+      await db.deleteFrom("topic_routes").where("channel", "=", channel).where("topic_id", "=", topicId).execute();
     },
   };
 }

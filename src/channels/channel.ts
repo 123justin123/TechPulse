@@ -2,7 +2,7 @@ import type { CommandHandler } from "../commands.js";
 import type { EnvReader } from "../config/env.js";
 import type { Logger } from "../lib/logger.js";
 import type { Topic } from "../topics.js";
-import type { ChannelRoutes } from "./routes.js";
+import type { TopicRoutes } from "./routes.js";
 
 export interface DigestItem {
   title: string;
@@ -37,7 +37,7 @@ export interface Channel {
 
 export interface ChannelContext {
   log: Logger;
-  routes: ChannelRoutes;
+  routes: TopicRoutes;
 }
 
 export interface ChannelDefinition<Settings> {

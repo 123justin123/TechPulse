@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { DiscordChannel } from "../../../src/channels/discord/discord-channel.js";
-import { createChannelRoutes, topicRoute } from "../../../src/channels/routes.js";
+import { createTopicRoutes } from "../../../src/channels/routes.js";
 import { digestOf, groupOf, itemOf } from "../../support/digest.js";
-import { memoryDb, recordingLog, startServer, type TestServer } from "../../support/helpers.js";
+import { insertTopic, memoryDb, recordingLog, startServer, type TestServer } from "../../support/helpers.js";
 
 describe("DiscordChannel", () => {
   let responseStatus = 204;
@@ -30,13 +30,12 @@ describe("DiscordChannel", () => {
   const LINUX = groupOf(2, "Linux", [itemOf()]);
 
   const createChannel = async ({ log = recordingLog().log, routed = [FINANCE, LINUX] } = {}) => {
-    const routes = createChannelRoutes(memoryDb(), "discord");
+    const db = memoryDb();
+    for (const topic of ["Finance", "Linux", "Broken"]) await insertTopic(db, topic);
+    const routes = createTopicRoutes(db, "discord");
     for (const group of routed) {
       const path = `${group.topic.toLowerCase()}-webhook`;
-      await routes.set(
-        topicRoute(group.topicId),
-        JSON.stringify({ channelId: path, webhookUrl: `${server.url}/${path}` }),
-      );
+      await routes.set(group.topicId, JSON.stringify({ channelId: path, webhookUrl: `${server.url}/${path}` }));
     }
     return new DiscordChannel({ botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined }, log, routes);
   };
@@ -101,13 +100,13 @@ describe("DiscordChannel", () => {
 
   it("skips channel sync while the bot is not logged in", async () => {
     const db = memoryDb();
-    const routes = createChannelRoutes(db, "discord");
+    const routes = createTopicRoutes(db, "discord");
     const channel = new DiscordChannel(
       { botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined },
       recordingLog().log,
       routes,
     );
     await channel.syncTopics([{ id: 1, label: "Finance", description: "Definition.", active: true }]);
-    assert.equal(await routes.get(topicRoute(1)), undefined);
+    assert.equal(await routes.get(1), undefined);
   });
 });

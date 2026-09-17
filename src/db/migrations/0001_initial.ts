@@ -44,10 +44,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema.createIndex("idx_item_topics_topic").on("item_topics").column("topic_id").execute();
 
   await db.schema
-    .createTable("channel_routes")
+    .createTable("topic_routes")
     .addColumn("channel", "text", (col) => col.notNull())
-    .addColumn("route", "text", (col) => col.notNull())
+    .addColumn("topic_id", "integer", (col) => col.notNull().references("topics.id").onDelete("cascade"))
     .addColumn("target", "text", (col) => col.notNull())
-    .addPrimaryKeyConstraint("channel_routes_pk", ["channel", "route"])
+    .addPrimaryKeyConstraint("topic_routes_pk", ["channel", "topic_id"])
     .execute();
 }

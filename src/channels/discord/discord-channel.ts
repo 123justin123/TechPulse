@@ -9,7 +9,7 @@ import {
 import type { CommandHandler } from "../../commands.js";
 import { errorMessage, type Logger } from "../../lib/logger.js";
 import type { Channel, Digest, TopicState } from "../channel.js";
-import { type ChannelRoutes, topicRoute } from "../routes.js";
+import type { TopicRoutes } from "../routes.js";
 import { packBlocks, renderDigest, renderReply } from "./render.js";
 import { SLASH_COMMANDS, toCommand } from "./slash-commands.js";
 import { createGuildApi, type DiscordGuildApi, readRoute, syncTopicChannels } from "./topic-channels.js";
@@ -30,14 +30,14 @@ export class DiscordChannel implements Channel {
   constructor(
     private readonly settings: DiscordSettings,
     private readonly log: Logger,
-    private readonly routes: ChannelRoutes,
+    private readonly routes: TopicRoutes,
   ) {}
 
   async send(digest: Digest): Promise<void> {
     const failures: string[] = [];
     for (const group of digest.groups) {
       try {
-        const route = readRoute(await this.routes.get(topicRoute(group.topicId)));
+        const route = readRoute(await this.routes.get(group.topicId));
         if (!route) throw new Error("its channel does not exist yet");
         for (const payload of renderDigest(digest, group)) {
           await postWebhook(route.webhookUrl, payload, this.log);
