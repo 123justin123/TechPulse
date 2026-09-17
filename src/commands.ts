@@ -1,7 +1,7 @@
 import type { Db } from "./db.js";
 import type { LlmProvider } from "./llm/provider.js";
 import { errorMessage } from "./logger.js";
-import { addTopic, listTopics, removeTopic } from "./topics.js";
+import { addTopics, listTopics, removeTopic } from "./topics.js";
 
 export const JOB_NAMES = ["collect", "score", "digest"] as const;
 export type JobName = (typeof JOB_NAMES)[number];
@@ -39,8 +39,8 @@ export function createCommandHandler({ db, llm, language, runJob }: CommandHandl
     try {
       switch (command.name) {
         case "topic-add": {
-          const topic = await addTopic({ db, llm, language }, command.phrase);
-          return [{ title: `${topicOutcome(topic)}: ${topic.label}`, body: topic.description }];
+          const topics = await addTopics({ db, llm, language }, command.phrase);
+          return topics.map((topic) => ({ title: `${topicOutcome(topic)}: ${topic.label}`, body: topic.description }));
         }
 
         case "topic-remove":

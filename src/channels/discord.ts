@@ -48,7 +48,7 @@ export const SLASH_COMMANDS = [
     .addSubcommand((subcommand) =>
       subcommand
         .setName("add")
-        .setDescription("Follow a new topic")
+        .setDescription("Follow one or several new topics")
         .addStringOption((option) =>
           option.setName("phrase").setDescription("Describe in one sentence what you want to follow").setRequired(true),
         ),

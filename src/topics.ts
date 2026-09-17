@@ -38,10 +38,19 @@ const TopicSchema = z.object({
     ),
 });
 
+const TopicListSchema = z.object({
+  topics: z.array(TopicSchema).describe("One entry per distinct subject, in the order the user mentioned them."),
+});
+
 function buildSystemPrompt(language: string): string {
   return `You structure areas of interest for a technology news aggregator.
 
-The user describes, in one sentence, a subject they want to follow. You produce:
+The user describes, in one sentence, one or several subjects they want to follow.
+Produce one topic per distinct subject. Split only subjects that would be read
+separately in a digest (e.g. "Rust and Kubernetes" gives two topics); keep a subject
+and its own facets together (e.g. "Rust and its ecosystem" gives one topic).
+
+For each topic, you produce:
 - a short label, used as a section heading in a daily digest;
 - a description, injected verbatim into the prompt of an article classifier.
 
@@ -54,21 +63,38 @@ Never write in the second person and never address the user.
 Write the label and the description in ${language}.`;
 }
 
-export async function addTopic(
+export async function addTopics(
   { db, llm, language }: { db: Db; llm: LlmProvider; language: string },
   phrase: string,
-): Promise<RegisteredTopic> {
+): Promise<RegisteredTopic[]> {
   const rawInput = phrase.trim();
   if (!rawInput) throw new Error("Describe in one sentence what you want to follow.");
 
-  const deduced = await llm.completeJson({
+  const { topics } = await llm.completeJson({
     system: buildSystemPrompt(language),
-    prompt: `Area of interest expressed by the user:\n\n${rawInput}`,
-    schema: TopicSchema,
+    prompt: `Areas of interest expressed by the user:\n\n${rawInput}`,
+    schema: TopicListSchema,
     model: llm.models.topic,
     effort: "high",
   });
 
+  const deduced = uniqueByLabel(topics);
+  if (deduced.length === 0) throw new Error("No topic could be deduced from this sentence.");
+
+  return db.transaction(() => deduced.map((topic) => saveTopic(db, topic, rawInput)))();
+}
+
+function uniqueByLabel<T extends { label: string }>(topics: T[]): T[] {
+  const seen = new Set<string>();
+  return topics.filter((topic) => {
+    const key = topic.label.trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function saveTopic(db: Db, deduced: Pick<Topic, "label" | "description">, rawInput: string): RegisteredTopic {
   const existing = db.prepare("SELECT id, active FROM topics WHERE label = ?").get(deduced.label) as
     | Pick<TopicRow, "id" | "active">
     | undefined;

@@ -60,13 +60,13 @@ Each channel exposes the same commands in its own syntax. On Discord, they are s
 
 | Command | Effect |
 | --- | --- |
-| `/topic add phrase:` | follow a topic described in one sentence |
+| `/topic add phrase:` | follow one or several topics described in one sentence |
 | `/topic remove label:` | stop following a topic |
 | `/topic list` | list topics |
 | `/run job:` | run collect, score or digest now |
 
 Example: `/topic add phrase: Security news: vulnerabilities, attacks and data breaches`.
-The LLM turns the sentence into a label and a precise definition used for scoring.
+The LLM splits the sentence into distinct topics, each with a label and a precise definition used for scoring.
 
 ## Configuration
 

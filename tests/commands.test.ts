@@ -7,7 +7,7 @@ import { fakeLlm, memoryDb, TEST_LANGUAGE } from "./helpers.js";
 const FINANCE = { label: "Finance", description: "Financial markets and fintech." };
 
 function setup({
-  respond = () => FINANCE,
+  respond = () => ({ topics: [FINANCE] }),
   runJob,
 }: {
   respond?: () => unknown;
@@ -34,6 +34,15 @@ describe("command handler", () => {
     const { handle } = setup();
     const reply = await handle({ name: "topic-add", phrase: "I want to follow finance" });
     assert.deepEqual(reply, [{ title: "Topic created: Finance", body: "Financial markets and fintech." }]);
+  });
+
+  it("shows one section per topic deduced from the sentence", async () => {
+    const linux = { label: "Linux", description: "The Linux kernel." };
+    const { handle } = setup({ respond: () => ({ topics: [linux, FINANCE] }) });
+    assert.deepEqual(await handle({ name: "topic-add", phrase: "linux and finance" }), [
+      { title: "Topic created: Linux", body: "The Linux kernel." },
+      { title: "Topic created: Finance", body: "Financial markets and fintech." },
+    ]);
   });
 
   it("asks for a sentence instead of calling the LLM for nothing", async () => {
