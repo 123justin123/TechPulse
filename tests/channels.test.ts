@@ -74,20 +74,20 @@ describe("combineChannels", () => {
 });
 
 describe("createChannelRoutes", () => {
-  it("stores one target per channel and route", () => {
+  it("stores one target per channel and route", async () => {
     const db = memoryDb();
     const discord = createChannelRoutes(db, "discord");
     const slack = createChannelRoutes(db, "slack");
 
-    discord.set(topicRoute(1), "first");
-    discord.set(topicRoute(1), "second");
-    slack.set(topicRoute(1), "other");
+    await discord.set(topicRoute(1), "first");
+    await discord.set(topicRoute(1), "second");
+    await slack.set(topicRoute(1), "other");
 
-    assert.equal(discord.get("topic:1"), "second");
-    assert.equal(slack.get(topicRoute(1)), "other");
-    discord.delete(topicRoute(1));
-    assert.equal(discord.get(topicRoute(1)), undefined);
-    assert.equal(slack.get(topicRoute(1)), "other");
+    assert.equal(await discord.get("topic:1"), "second");
+    assert.equal(await slack.get(topicRoute(1)), "other");
+    await discord.delete(topicRoute(1));
+    assert.equal(await discord.get(topicRoute(1)), undefined);
+    assert.equal(await slack.get(topicRoute(1)), "other");
   });
 });
 

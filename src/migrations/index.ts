@@ -1,4 +1,3 @@
-import { Kysely, SqliteDialect } from "kysely";
 import { type Migration, Migrator } from "kysely/migration";
 import type { Db } from "../db.js";
 import { errorMessage } from "../logger.js";
@@ -17,7 +16,7 @@ export async function migrate(
   { migrations = MIGRATIONS }: { migrations?: Readonly<Record<string, Migration>> } = {},
 ): Promise<string[]> {
   const migrator = new Migrator({
-    db: new Kysely<unknown>({ dialect: new SqliteDialect({ database: db }) }),
+    db,
     provider: { getMigrations: async () => inTransactions(migrations) },
   });
 

@@ -136,6 +136,7 @@ deploy. Back up the `techpulse-data` volume with *Volume Backups*.
 src/
   main.ts        builds every dependency and starts the jobs
   config.ts      reads and validates the environment
+  db.ts          typed schema and SQLite connection
   migrations/    Kysely schema migrations, applied at startup
   scheduler.ts   cron jobs
   topics.ts      topic management
@@ -154,10 +155,13 @@ one new file registered in that folder's `index.ts`.
 Topic channels are reconciled rather than driven by events: `syncTopics` compares the topics
 with what the channel already has and fixes the difference, so it can run at any time.
 
-The schema evolves through [Kysely](https://kysely.dev) migrations in `src/migrations/`: add a
-`0002_add_something.ts` exporting `up`, then register it in `src/migrations/index.ts`. They run at
-startup, each in its own transaction, and are recorded in `kysely_migration`; startup stops if the
-database knows a migration the code does not. Kysely only drives migrations: queries stay plain SQL.
+Queries go through [Kysely](https://kysely.dev), a type-safe query builder (not an ORM) over
+SQLite: the `Database` interface in `db.ts` describes every table, so a renamed or dropped column
+breaks the build instead of a query at runtime. The schema evolves through migrations in
+`src/migrations/`: add a `0002_add_something.ts` exporting `up`, register it in
+`src/migrations/index.ts` and update `Database`. They run at startup, each in its own transaction,
+and are recorded in `kysely_migration`; startup stops if the database knows a migration the code
+does not.
 
 LLM failures are classified: an unusable answer costs the batch an attempt, while an outage
 or a wrong API key stops scoring without penalizing any article.

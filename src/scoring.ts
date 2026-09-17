@@ -1,5 +1,6 @@
+import { sql } from "kysely";
 import { z } from "zod";
-import type { Db } from "./db.js";
+import type { Db, ItemStatus } from "./db.js";
 import { LlmError, type LlmProvider } from "./llm/provider.js";
 import { errorMessage, type Logger } from "./logger.js";
 import { listTopics, type Topic } from "./topics.js";
@@ -94,20 +95,20 @@ export async function scorePending({
   settings: ScoringSettings;
   log: Logger;
 }): Promise<string> {
-  const topics = listTopics(db, { activeOnly: true });
+  const topics = await listTopics(db, { activeOnly: true });
   if (topics.length === 0) {
     return "No active topic, nothing to score.";
   }
 
-  const pending = db
-    .prepare(
-      `SELECT id, title, content, source, source_ref AS sourceRef
-       FROM raw_items
-       WHERE status = 'pending' AND attempts < ?
-       ORDER BY published_at DESC NULLS LAST, id DESC
-       LIMIT ?`,
-    )
-    .all(settings.maxAttempts, settings.maxItemsPerRun) as PendingItem[];
+  const pending = await db
+    .selectFrom("raw_items")
+    .select(["id", "title", "content", "source", "source_ref as sourceRef"])
+    .where("status", "=", "pending")
+    .where("attempts", "<", settings.maxAttempts)
+    .orderBy("published_at", (order) => order.desc().nullsLast())
+    .orderBy("id", "desc")
+    .limit(settings.maxItemsPerRun)
+    .execute();
 
   if (pending.length === 0) {
     return "No pending article.";
@@ -130,7 +131,7 @@ export async function scorePending({
         model: llm.models.scoring,
         effort: "medium",
       });
-      scoredCount += applyVerdicts(db, batch, verdicts, topicIds, settings.maxAttempts);
+      scoredCount += await applyVerdicts(db, batch, verdicts, topicIds, settings.maxAttempts);
     } catch (error) {
       if (!(error instanceof LlmError) || error.kind !== "content") {
         const reason = error instanceof LlmError && error.kind === "transient" ? "API unavailable" : "configuration";
@@ -140,7 +141,7 @@ export async function scorePending({
         );
       }
       log.warn(`Batch of ${batch.length} articles failed, one attempt charged: ${error.message}`);
-      chargeAttempt(db, batch, settings.maxAttempts);
+      await chargeAttempt(db, batch, settings.maxAttempts);
       failedCount += batch.length;
     }
   }
@@ -148,58 +149,70 @@ export async function scorePending({
   return `${scoredCount} articles scored, ${failedCount} failed.`;
 }
 
-export function requeueRecentItems(db: Db, windowHours: number): number {
+export async function requeueRecentItems(db: Db, windowHours: number): Promise<number> {
   if (windowHours === 0) return 0;
-  return db
-    .prepare(
-      `UPDATE raw_items
-       SET status = 'pending', attempts = 0
-       WHERE status IN ('processed', 'discarded') AND fetched_at >= datetime('now', ?)`,
-    )
-    .run(`-${windowHours} hours`).changes;
+  const { numUpdatedRows } = await db
+    .updateTable("raw_items")
+    .set({ status: "pending", attempts: 0 })
+    .where("status", "in", ["processed", "discarded"])
+    .where("fetched_at", ">=", sql<string>`datetime('now', ${`-${windowHours} hours`})`)
+    .executeTakeFirst();
+  return Number(numUpdatedRows);
 }
 
-function applyVerdicts(
+async function applyVerdicts(
   db: Db,
   batch: readonly PendingItem[],
   verdicts: readonly Verdict[],
   topicIds: ReadonlyMap<string, number>,
   maxAttempts: number,
-): number {
-  const markProcessed = db.prepare(
-    `UPDATE raw_items
-     SET status = 'processed', score = ?, summary = ?, processed_at = datetime('now')
-     WHERE id = ?`,
-  );
-  const clearTopics = db.prepare("DELETE FROM item_topics WHERE item_id = ?");
-  const addTopic = db.prepare("INSERT INTO item_topics (item_id, topic_id, position) VALUES (?, ?, ?)");
+): Promise<number> {
   const verdictsByIndex = new Map(verdicts.map((verdict) => [verdict.index, verdict]));
   const unanswered = batch.filter((_, index) => !verdictsByIndex.has(index));
 
-  return db.transaction(() => {
-    batch.forEach((item, index) => {
+  await db.transaction().execute(async (trx) => {
+    for (const [index, item] of batch.entries()) {
       const verdict = verdictsByIndex.get(index);
-      if (!verdict) return;
-      markProcessed.run(verdict.score, verdict.summary, item.id);
-      clearTopics.run(item.id);
-      const itemTopicIds = new Set(verdict.topics.flatMap((label) => topicIds.get(label) ?? []));
-      [...itemTopicIds].forEach((topicId, position) => {
-        addTopic.run(item.id, topicId, position);
-      });
-    });
-    chargeAttempt(db, unanswered, maxAttempts);
-    return batch.length - unanswered.length;
-  })();
+      if (!verdict) continue;
+
+      await trx
+        .updateTable("raw_items")
+        .set({
+          status: "processed",
+          score: verdict.score,
+          summary: verdict.summary,
+          processed_at: sql`datetime('now')`,
+        })
+        .where("id", "=", item.id)
+        .execute();
+      await trx.deleteFrom("item_topics").where("item_id", "=", item.id).execute();
+
+      const itemTopicIds = [...new Set(verdict.topics.flatMap((label) => topicIds.get(label) ?? []))];
+      if (itemTopicIds.length > 0) {
+        await trx
+          .insertInto("item_topics")
+          .values(itemTopicIds.map((topicId, position) => ({ item_id: item.id, topic_id: topicId, position })))
+          .execute();
+      }
+    }
+    await chargeAttempt(trx, unanswered, maxAttempts);
+  });
+
+  return batch.length - unanswered.length;
 }
 
-function chargeAttempt(db: Db, items: readonly PendingItem[], maxAttempts: number): void {
-  const charge = db.prepare(
-    `UPDATE raw_items
-     SET attempts = attempts + 1,
-         status = CASE WHEN attempts + 1 >= ? THEN 'failed' ELSE status END
-     WHERE id = ?`,
-  );
-  db.transaction(() => {
-    for (const item of items) charge.run(maxAttempts, item.id);
-  })();
+async function chargeAttempt(db: Db, items: readonly PendingItem[], maxAttempts: number): Promise<void> {
+  if (items.length === 0) return;
+  await db
+    .updateTable("raw_items")
+    .set((eb) => ({
+      attempts: eb("attempts", "+", 1),
+      status: sql<ItemStatus>`CASE WHEN attempts + 1 >= ${maxAttempts} THEN 'failed' ELSE status END`,
+    }))
+    .where(
+      "id",
+      "in",
+      items.map((item) => item.id),
+    )
+    .execute();
 }

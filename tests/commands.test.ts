@@ -53,13 +53,13 @@ describe("command handler", () => {
 
   it("announces how many recent articles will be rescored against the new topics", async () => {
     const { handle, db } = setup();
-    insertItems(db, 2);
-    db.prepare("UPDATE raw_items SET status = 'discarded'").run();
+    await insertItems(db, 2);
+    await db.updateTable("raw_items").set({ status: "discarded" }).execute();
 
     const reply = await handle({ name: "topic-add", phrase: "finance" });
 
     assert.deepEqual(reply.at(-1), { body: "2 articles from the last 48 h will be rescored on the next score run." });
-    assert.deepEqual(statusCounts(db), { pending: 2 });
+    assert.deepEqual(await statusCounts(db), { pending: 2 });
   });
 
   it("syncs the channels after adding or disabling a topic, not after a failed removal", async () => {

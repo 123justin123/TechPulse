@@ -5,21 +5,22 @@ import { fakeChannel, insertItems, insertTopic, memoryDb, NOW, statusCounts } fr
 
 const SETTINGS = { threshold: 6, maxItems: 3 };
 
-function scoredDb(scores: [score: number, topicIds: number[]][]) {
+async function scoredDb(scores: [score: number, topicIds: number[]][]) {
   const db = memoryDb();
-  insertTopic(db, "Finance");
-  insertTopic(db, "Linux");
-  const ids = insertItems(db, scores.length);
-  const markScored = db.prepare(
-    "UPDATE raw_items SET status = 'processed', score = ?, summary = 'Summary.' WHERE id = ?",
-  );
-  const addTopic = db.prepare("INSERT INTO item_topics (item_id, topic_id, position) VALUES (?, ?, ?)");
-  scores.forEach(([score, topicIds], index) => {
-    markScored.run(score, ids[index]);
-    topicIds.forEach((topicId, position) => {
-      addTopic.run(ids[index], topicId, position);
-    });
-  });
+  await insertTopic(db, "Finance");
+  await insertTopic(db, "Linux");
+  const ids = await insertItems(db, scores.length);
+  for (const [index, [score, topicIds]] of scores.entries()) {
+    const itemId = ids[index] ?? 0;
+    await db
+      .updateTable("raw_items")
+      .set({ status: "processed", score, summary: "Summary." })
+      .where("id", "=", itemId)
+      .execute();
+    for (const [position, topicId] of topicIds.entries()) {
+      await db.insertInto("item_topics").values({ item_id: itemId, topic_id: topicId, position }).execute();
+    }
+  }
   return db;
 }
 
@@ -39,7 +40,7 @@ const defaultDb = () =>
 describe("sendDigest", () => {
   it("sends nothing when no article has been scored", async () => {
     const db = memoryDb();
-    insertItems(db, 3);
+    await insertItems(db, 3);
     const { channel, sent } = fakeChannel();
     const summary = await sendDigest({ db, channel, settings: SETTINGS, now: NOW });
     assert.match(summary, /nothing to send/);
@@ -47,18 +48,18 @@ describe("sendDigest", () => {
   });
 
   it("keeps the best articles above the threshold, discards the rest and postpones the overflow", async () => {
-    const db = defaultDb();
+    const db = await defaultDb();
     const { channel, sent } = fakeChannel();
 
     const summary = await sendDigest({ db, channel, settings: SETTINGS, now: NOW });
 
     assert.equal(summary, "Digest sent: 3 retained, 2 discarded, 1 postponed to the next digest.");
     assert.equal(sent[0]?.date, "2026-09-12");
-    assert.deepEqual(statusCounts(db), { sent: 3, processed: 1, discarded: 2 });
+    assert.deepEqual(await statusCounts(db), { sent: 3, processed: 1, discarded: 2 });
   });
 
   it("lists an article under every one of its topics, the best topic first", async () => {
-    const db = defaultDb();
+    const db = await defaultDb();
     const { channel, sent } = fakeChannel();
 
     await sendDigest({ db, channel, settings: SETTINGS, now: NOW });
@@ -85,7 +86,7 @@ describe("sendDigest", () => {
   });
 
   it("discards an article without topic even above the threshold, since no channel can receive it", async () => {
-    const db = scoredDb([
+    const db = await scoredDb([
       [9, []],
       [7, [FINANCE]],
     ]);
@@ -101,7 +102,7 @@ describe("sendDigest", () => {
   });
 
   it("calls no channel when nothing reaches the threshold, but still discards the articles", async () => {
-    const db = scoredDb([[3, [FINANCE]]]);
+    const db = await scoredDb([[3, [FINANCE]]]);
     const { channel, sent } = fakeChannel();
 
     assert.equal(
@@ -109,13 +110,13 @@ describe("sendDigest", () => {
       "Digest sent: 0 retained, 1 discarded.",
     );
     assert.equal(sent.length, 0);
-    assert.deepEqual(statusCounts(db), { discarded: 1 });
+    assert.deepEqual(await statusCounts(db), { discarded: 1 });
   });
 
   it("leaves every status untouched when sending fails", async () => {
-    const db = defaultDb();
+    const db = await defaultDb();
     const { channel } = fakeChannel({ failWith: new Error("Discord unreachable") });
     await assert.rejects(sendDigest({ db, channel, settings: SETTINGS, now: NOW }), /Discord unreachable/);
-    assert.deepEqual(statusCounts(db), { processed: 6 });
+    assert.deepEqual(await statusCounts(db), { processed: 6 });
   });
 });

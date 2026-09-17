@@ -5,22 +5,33 @@ export function topicRoute(topicId: number): string {
 }
 
 export interface ChannelRoutes {
-  get(route: string): string | undefined;
-  set(route: string, target: string): void;
-  delete(route: string): void;
+  get(route: string): Promise<string | undefined>;
+  set(route: string, target: string): Promise<void>;
+  delete(route: string): Promise<void>;
 }
 
 export function createChannelRoutes(db: Db, channel: string): ChannelRoutes {
-  const select = db.prepare("SELECT target FROM channel_routes WHERE channel = ? AND route = ?");
-  const upsert = db.prepare(
-    `INSERT INTO channel_routes (channel, route, target) VALUES (?, ?, ?)
-     ON CONFLICT (channel, route) DO UPDATE SET target = excluded.target`,
-  );
-  const remove = db.prepare("DELETE FROM channel_routes WHERE channel = ? AND route = ?");
-
   return {
-    get: (route) => (select.get(channel, route) as { target: string } | undefined)?.target,
-    set: (route, target) => void upsert.run(channel, route, target),
-    delete: (route) => void remove.run(channel, route),
+    async get(route) {
+      const row = await db
+        .selectFrom("channel_routes")
+        .select("target")
+        .where("channel", "=", channel)
+        .where("route", "=", route)
+        .executeTakeFirst();
+      return row?.target;
+    },
+
+    async set(route, target) {
+      await db
+        .insertInto("channel_routes")
+        .values({ channel, route, target })
+        .onConflict((conflict) => conflict.columns(["channel", "route"]).doUpdateSet({ target }))
+        .execute();
+    },
+
+    async delete(route) {
+      await db.deleteFrom("channel_routes").where("channel", "=", channel).where("route", "=", route).execute();
+    },
   };
 }

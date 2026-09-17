@@ -38,7 +38,7 @@ describe("collectAll", () => {
     );
 
     assert.equal(summary, "3 new articles (rss 2, blog failed, forum 1).");
-    const rows = db.prepare("SELECT url, source FROM raw_items ORDER BY url").all();
+    const rows = await db.selectFrom("raw_items").select(["url", "source"]).orderBy("url").execute();
     assert.deepEqual(rows, [
       { url: "https://a.test/1", source: "rss" },
       { url: "https://a.test/2", source: "rss" },
@@ -66,8 +66,11 @@ describe("collectAll", () => {
       { log: recordingLog().log, maxItemAgeDays: 7, describePage: noDescription, now: NOW },
     );
 
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(db.prepare("SELECT url FROM raw_items").all(), [{ url: "https://fast.test/1" }]);
+    const savedUrls = () => db.selectFrom("raw_items").select("url").execute();
+    for (let tick = 0; tick < 100 && (await savedUrls()).length === 0; tick++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.deepEqual(await savedUrls(), [{ url: "https://fast.test/1" }]);
 
     releaseSlowSource();
     assert.equal(await collecting, "2 new articles (forum 1, rss 1).");
@@ -104,7 +107,10 @@ describe("collectAll", () => {
       ],
       { log: recordingLog().log, maxItemAgeDays: 7, describePage: noDescription, now: NOW },
     );
-    const rows = db.prepare("SELECT url, length(content) AS size FROM raw_items").all();
+    const rows = await db
+      .selectFrom("raw_items")
+      .select(["url", (eb) => eb.fn<number>("length", ["content"]).as("size")])
+      .execute();
     assert.deepEqual(rows, [{ url: "https://a.test/long", size: 1499 }]);
   });
 });
@@ -132,9 +138,9 @@ describe("collectAll enrichment", () => {
     await collect();
 
     assert.deepEqual(describedUrls, ["https://a.test/short"]);
-    const { content } = db.prepare("SELECT content FROM raw_items").get() as { content: string };
-    assert.match(content, /^A description long enough to be useful\./);
-    assert.match(content, /\nPoints: 134$/);
+    const { content } = await db.selectFrom("raw_items").select("content").executeTakeFirstOrThrow();
+    assert.match(content ?? "", /^A description long enough to be useful\./);
+    assert.match(content ?? "", /\nPoints: 134$/);
   });
 });
 

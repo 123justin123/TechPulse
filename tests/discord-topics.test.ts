@@ -77,25 +77,25 @@ function fakeGuild() {
   return { api, channels, webhooks, calls, categoryNamed, channelNamed };
 }
 
-function setup() {
+async function setup() {
   const db = memoryDb();
   const routes = createChannelRoutes(db, "discord");
   const guild = fakeGuild();
   const { log, lines } = recordingLog();
   const rust: TopicState = {
-    id: insertTopic(db, "Rust Lang", "The Rust language."),
+    id: await insertTopic(db, "Rust Lang", "The Rust language."),
     label: "Rust Lang",
     description: "The Rust language.",
     active: true,
   };
   const sync = (topics: TopicState[], api = guild.api) => syncTopicChannels({ api, routes, topics, log });
-  const routeOf = (topicId: number) => readRoute(routes.get(topicRoute(topicId)));
+  const routeOf = async (topicId: number) => readRoute(await routes.get(topicRoute(topicId)));
   return { db, routes, guild, rust, sync, routeOf, lines };
 }
 
 describe("syncTopicChannels", () => {
   it("creates a category, a channel and a webhook for an active topic, then remembers the route", async () => {
-    const { guild, rust, sync, routeOf } = setup();
+    const { guild, rust, sync, routeOf } = await setup();
 
     await sync([rust]);
 
@@ -108,14 +108,14 @@ describe("syncTopicChannels", () => {
       topic: "The Rust language.",
       parentId: category?.id,
     });
-    assert.deepEqual(routeOf(rust.id), {
+    assert.deepEqual(await routeOf(rust.id), {
       channelId: rustChannel?.id,
       webhookUrl: guild.webhooks.get(rustChannel?.id ?? "")?.[0],
     });
   });
 
   it("changes nothing on a second sync", async () => {
-    const { guild, rust, sync } = setup();
+    const { guild, rust, sync } = await setup();
     await sync([rust]);
     guild.calls.length = 0;
 
@@ -125,7 +125,7 @@ describe("syncTopicChannels", () => {
   });
 
   it("truncates a long description once instead of updating it on every sync", async () => {
-    const { guild, rust, sync } = setup();
+    const { guild, rust, sync } = await setup();
     const verbose = { ...rust, description: "x".repeat(2000) };
     await sync([verbose]);
     guild.calls.length = 0;
@@ -137,7 +137,7 @@ describe("syncTopicChannels", () => {
   });
 
   it("follows the new description of a topic", async () => {
-    const { guild, rust, sync } = setup();
+    const { guild, rust, sync } = await setup();
     await sync([rust]);
 
     await sync([{ ...rust, description: "Rust, updated." }]);
@@ -146,9 +146,9 @@ describe("syncTopicChannels", () => {
   });
 
   it("archives the channel of a disabled topic in a read-only category, then restores it", async () => {
-    const { guild, rust, sync, routeOf } = setup();
+    const { guild, rust, sync, routeOf } = await setup();
     await sync([rust]);
-    const channelId = routeOf(rust.id)?.channelId ?? "";
+    const channelId = (await routeOf(rust.id))?.channelId ?? "";
 
     await sync([{ ...rust, active: false }]);
     const archive = guild.categoryNamed(ARCHIVE_CATEGORY);
@@ -161,43 +161,48 @@ describe("syncTopicChannels", () => {
   });
 
   it("recreates a channel or a webhook deleted by hand", async () => {
-    const { guild, rust, sync, routeOf } = setup();
+    const { guild, rust, sync, routeOf } = await setup();
     await sync([rust]);
-    const firstRoute = routeOf(rust.id);
+    const firstRoute = await routeOf(rust.id);
 
     guild.webhooks.clear();
     await sync([rust]);
-    const withNewWebhook = routeOf(rust.id);
+    const withNewWebhook = await routeOf(rust.id);
     assert.equal(withNewWebhook?.channelId, firstRoute?.channelId);
     assert.notEqual(withNewWebhook?.webhookUrl, firstRoute?.webhookUrl);
 
     guild.channels.clear();
     await sync([rust]);
-    assert.notEqual(routeOf(rust.id)?.channelId, firstRoute?.channelId);
+    assert.notEqual((await routeOf(rust.id))?.channelId, firstRoute?.channelId);
     assert.equal(guild.channels.size, 1);
   });
 
   it("forgets the route of a disabled topic whose channel no longer exists", async () => {
-    const { routes, guild, rust, sync } = setup();
+    const { routes, guild, rust, sync } = await setup();
     await sync([rust]);
     guild.channels.clear();
 
     await sync([{ ...rust, active: false }]);
 
-    assert.equal(routes.get(topicRoute(rust.id)), undefined);
+    assert.equal(await routes.get(topicRoute(rust.id)), undefined);
     assert.equal(guild.categoryNamed(ARCHIVE_CATEGORY), undefined, "no archive category for nothing");
   });
 
   it("does nothing for a disabled topic that never had a channel", async () => {
-    const { guild, rust, sync } = setup();
+    const { guild, rust, sync } = await setup();
     await sync([{ ...rust, active: false }]);
 
     assert.deepEqual(guild.calls, []);
   });
 
   it("logs a failing topic and keeps syncing the others", async () => {
-    const { db, routes, guild, rust, sync, routeOf, lines } = setup();
-    const linux: TopicState = { id: insertTopic(db, "Linux"), label: "Linux", description: "Kernel.", active: true };
+    const { db, routes, guild, rust, sync, routeOf, lines } = await setup();
+    const linux: TopicState = {
+      id: await insertTopic(db, "Linux"),
+      label: "Linux",
+      description: "Kernel.",
+      active: true,
+    };
     const api: DiscordGuildApi = {
       ...guild.api,
       async createTextChannel(options) {
@@ -211,8 +216,8 @@ describe("syncTopicChannels", () => {
     assert.ok(
       lines.some((line) => line.includes('Channel of topic "Rust Lang" could not be synced: Missing Permissions')),
     );
-    assert.equal(routes.get(topicRoute(rust.id)), undefined);
-    assert.ok(routeOf(linux.id));
+    assert.equal(await routes.get(topicRoute(rust.id)), undefined);
+    assert.ok(await routeOf(linux.id));
   });
 });
 

@@ -1,8 +1,8 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import Database from "better-sqlite3";
+import SQLite from "better-sqlite3";
 import type { Channel, Digest } from "../src/channels/channel.js";
-import { type Db, IN_MEMORY_DATABASE, openDatabase } from "../src/db.js";
+import { connect, type Db, type ItemStatus } from "../src/db.js";
 import type { Http, RequestOptions } from "../src/http.js";
 import {
   type CompleteJsonParams,
@@ -12,20 +12,19 @@ import {
   type ModelChoice,
 } from "../src/llm/provider.js";
 import { createLogger, type Logger } from "../src/logger.js";
+import { migrate } from "../src/migrations/index.js";
 
 export const NOW = new Date("2026-09-12T12:00:00Z");
 export const TEST_LANGUAGE = "English";
 
-const MIGRATED_DATABASE = await openDatabase(IN_MEMORY_DATABASE).then((db) => {
-  const image = db.serialize();
-  db.close();
-  return image;
-});
+const MIGRATED_DATABASE = await (async () => {
+  const sqlite = new SQLite(":memory:");
+  await migrate(connect(sqlite));
+  return sqlite.serialize();
+})();
 
 export function memoryDb(): Db {
-  const db = new Database(MIGRATED_DATABASE);
-  db.pragma("foreign_keys = ON");
-  return db;
+  return connect(new SQLite(MIGRATED_DATABASE));
 }
 
 export function recordingLog(): { log: Logger; lines: string[] } {
@@ -85,41 +84,56 @@ export function fakeHttp(respond: (url: string, options?: RequestOptions) => str
   return { http, requests };
 }
 
-export function insertTopic(db: Db, label: string, description = `Definition of topic ${label}.`): number {
-  return Number(
-    db.prepare("INSERT INTO topics (label, description, raw_input) VALUES (?, ?, ?)").run(label, description, label)
-      .lastInsertRowid,
-  );
+export async function insertTopic(
+  db: Db,
+  label: string,
+  description = `Definition of topic ${label}.`,
+): Promise<number> {
+  const { id } = await db
+    .insertInto("topics")
+    .values({ label, description, raw_input: label })
+    .returning("id")
+    .executeTakeFirstOrThrow();
+  return id;
 }
 
-export function insertItems(db: Db, count: number, { prefix = "article" }: { prefix?: string } = {}): number[] {
-  const insert = db.prepare(
-    "INSERT INTO raw_items (source, source_ref, title, url, content, published_at) VALUES (?, ?, ?, ?, ?, ?)",
-  );
-  return Array.from({ length: count }, (_, index) =>
-    Number(
-      insert.run(
-        "rss",
-        "Test feed",
-        `Title ${prefix} ${index}`,
-        `https://example.test/${prefix}/${index}`,
-        `Excerpt ${prefix} ${index}.`,
-        new Date(NOW.getTime() - index * 3_600_000).toISOString(),
-      ).lastInsertRowid,
-    ),
-  );
+export async function insertItems(
+  db: Db,
+  count: number,
+  { prefix = "article" }: { prefix?: string } = {},
+): Promise<number[]> {
+  const rows = await db
+    .insertInto("raw_items")
+    .values(
+      Array.from({ length: count }, (_, index) => ({
+        source: "rss",
+        source_ref: "Test feed",
+        title: `Title ${prefix} ${index}`,
+        url: `https://example.test/${prefix}/${index}`,
+        content: `Excerpt ${prefix} ${index}.`,
+        published_at: new Date(NOW.getTime() - index * 3_600_000).toISOString(),
+      })),
+    )
+    .returning("id")
+    .execute();
+  return rows.map((row) => row.id);
 }
 
-export function statusCounts(db: Db): Record<string, number> {
-  const rows = db.prepare("SELECT status, COUNT(*) AS count FROM raw_items GROUP BY status").all() as {
-    status: string;
-    count: number;
-  }[];
+export async function statusCounts(db: Db): Promise<Partial<Record<ItemStatus, number>>> {
+  const rows = await db
+    .selectFrom("raw_items")
+    .select(["status", (eb) => eb.fn.countAll<number>().as("count")])
+    .groupBy("status")
+    .execute();
   return Object.fromEntries(rows.map((row) => [row.status, row.count]));
 }
 
-export function totalAttempts(db: Db): number {
-  return (db.prepare("SELECT COALESCE(SUM(attempts), 0) AS total FROM raw_items").get() as { total: number }).total;
+export async function totalAttempts(db: Db): Promise<number> {
+  const { total } = await db
+    .selectFrom("raw_items")
+    .select((eb) => eb.fn.coalesce(eb.fn.sum<number>("attempts"), eb.lit(0)).as("total"))
+    .executeTakeFirstOrThrow();
+  return total;
 }
 
 export interface RecordedRequest {

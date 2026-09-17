@@ -24,7 +24,7 @@ describe("topics", () => {
     assert.match(calls[0]?.system ?? "", /structure areas of interest/);
     assert.match(calls[0]?.system ?? "", /Write the label and the description in French\./);
     assert.match(calls[0]?.prompt ?? "", /I want to follow finance$/);
-    const [saved] = listTopics(db);
+    const [saved] = await listTopics(db);
     assert.equal(saved?.rawInput, "I want to follow finance");
     assert.equal(saved?.active, true);
   });
@@ -39,10 +39,10 @@ describe("topics", () => {
     assert.equal(updated?.created, false);
     assert.equal(updated?.reactivated, false);
 
-    assert.equal(removeTopic(db, "finance"), true, "labels are compared case-insensitively");
+    assert.equal(await removeTopic(db, "finance"), true, "labels are compared case-insensitively");
     const [reactivated] = await addTopics(dependencies, "finance, the comeback");
     assert.equal(reactivated?.reactivated, true);
-    assert.equal(listTopics(db).length, 1);
+    assert.equal((await listTopics(db)).length, 1);
   });
 
   it("registers every distinct topic of a sentence and ignores duplicated labels", async () => {
@@ -59,7 +59,7 @@ describe("topics", () => {
       ],
     );
     assert.deepEqual(
-      listTopics(db).map((topic) => [topic.label, topic.rawInput]),
+      (await listTopics(db)).map((topic) => [topic.label, topic.rawInput]),
       [
         ["Finance", "linux and finance"],
         ["Linux", "linux and finance"],
@@ -71,7 +71,7 @@ describe("topics", () => {
     const db = memoryDb();
     const { llm } = fakeLlm(() => deduced());
     await assert.rejects(addTopics({ db, llm, language: TEST_LANGUAGE }, "hello"), /No topic could be deduced/);
-    assert.equal(listTopics(db).length, 0);
+    assert.equal((await listTopics(db)).length, 0);
   });
 
   it("rejects an empty sentence without calling the LLM", async () => {
@@ -88,17 +88,17 @@ describe("topics", () => {
     const { llm } = fakeLlm(() => deduced(LINUX, FINANCE));
     await addTopics({ db, llm, language: TEST_LANGUAGE }, "linux and finance");
 
-    assert.equal(removeTopic(db, "Linux"), true);
-    assert.equal(removeTopic(db, "Linux"), false, "already disabled");
+    assert.equal(await removeTopic(db, "Linux"), true);
+    assert.equal(await removeTopic(db, "Linux"), false, "already disabled");
     assert.deepEqual(
-      listTopics(db).map((topic) => [topic.label, topic.active]),
+      (await listTopics(db)).map((topic) => [topic.label, topic.active]),
       [
         ["Finance", true],
         ["Linux", false],
       ],
     );
     assert.deepEqual(
-      listTopics(db, { activeOnly: true }).map((topic) => topic.label),
+      (await listTopics(db, { activeOnly: true })).map((topic) => topic.label),
       ["Finance"],
     );
   });

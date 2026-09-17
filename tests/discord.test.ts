@@ -166,18 +166,21 @@ describe("DiscordChannel", () => {
   const FINANCE = groupOf(1, "Finance", [itemOf()]);
   const LINUX = groupOf(2, "Linux", [itemOf()]);
 
-  const createChannel = ({ log = recordingLog().log, routed = [FINANCE, LINUX] } = {}) => {
+  const createChannel = async ({ log = recordingLog().log, routed = [FINANCE, LINUX] } = {}) => {
     const routes = createChannelRoutes(memoryDb(), "discord");
     for (const group of routed) {
       const path = `${group.topic.toLowerCase()}-webhook`;
-      routes.set(topicRoute(group.topicId), JSON.stringify({ channelId: path, webhookUrl: `${server.url}/${path}` }));
+      await routes.set(
+        topicRoute(group.topicId),
+        JSON.stringify({ channelId: path, webhookUrl: `${server.url}/${path}` }),
+      );
     }
     return new DiscordChannel({ botToken: "bot-token", allowedUserIds: ["12"], guildId: undefined }, log, routes);
   };
 
   it("posts each topic to its own channel without allowing mentions", async () => {
     server.requests.length = 0;
-    await createChannel().send(digestOf([FINANCE, LINUX]));
+    await (await createChannel()).send(digestOf([FINANCE, LINUX]));
     assert.deepEqual(
       server.requests.map((request) => request.url),
       ["/finance-webhook", "/linux-webhook"],
@@ -193,7 +196,7 @@ describe("DiscordChannel", () => {
     const broken = groupOf(3, "Broken", [itemOf()]);
     const { log, lines } = recordingLog();
 
-    await createChannel({ log }).send(digestOf([FINANCE, broken, LINUX]));
+    await (await createChannel({ log })).send(digestOf([FINANCE, broken, LINUX]));
 
     assert.deepEqual(
       server.requests.map((request) => request.url),
@@ -207,7 +210,7 @@ describe("DiscordChannel", () => {
 
   it("fails when no topic channel received the digest, so articles are not marked as sent", async () => {
     await assert.rejects(
-      createChannel({ routed: [] }).send(digestOf([FINANCE])),
+      (await createChannel({ routed: [] })).send(digestOf([FINANCE])),
       /Digest could not be posted to any topic channel \(Finance: its channel does not exist yet\)/,
     );
   });
@@ -215,21 +218,21 @@ describe("DiscordChannel", () => {
   it("waits for the delay requested by Discord, then retries", async () => {
     server.requests.length = 0;
     rateLimitedResponses = 1;
-    await createChannel().send(digestOf([FINANCE]));
+    await (await createChannel()).send(digestOf([FINANCE]));
     assert.equal(server.requests.length, 2);
   });
 
   it("gives up after repeated rate limits", async () => {
     server.requests.length = 0;
     rateLimitedResponses = 10;
-    await assert.rejects(createChannel().send(digestOf([FINANCE])), /Discord webhook failed \(429\)/);
+    await assert.rejects((await createChannel()).send(digestOf([FINANCE])), /Discord webhook failed \(429\)/);
     assert.equal(server.requests.length, 3);
     rateLimitedResponses = 0;
   });
 
   it("reports a failing webhook", async () => {
     responseStatus = 500;
-    await assert.rejects(createChannel().send(digestOf([FINANCE])), /Discord webhook failed \(500\)/);
+    await assert.rejects((await createChannel()).send(digestOf([FINANCE])), /Discord webhook failed \(500\)/);
     responseStatus = 204;
   });
 
@@ -242,6 +245,6 @@ describe("DiscordChannel", () => {
       routes,
     );
     await channel.syncTopics([{ id: 1, label: "Finance", description: "Definition.", active: true }]);
-    assert.equal(routes.get(topicRoute(1)), undefined);
+    assert.equal(await routes.get(topicRoute(1)), undefined);
   });
 });

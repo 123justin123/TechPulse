@@ -48,7 +48,7 @@ const channel = combineChannels(
   log.child("channels"),
 );
 const syncTopics = async (): Promise<void> => {
-  await channel.syncTopics?.(listTopics(db));
+  await channel.syncTopics?.(await listTopics(db));
 };
 
 const scheduler = createScheduler({
@@ -116,7 +116,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   log.info(`${signal} received, shutting down.`);
   await scheduler.stop();
   await channel.close();
-  db.close();
+  await db.destroy();
   process.exit(0);
 }
 

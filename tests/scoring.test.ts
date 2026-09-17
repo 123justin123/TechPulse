@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Db } from "../src/db.js";
+import { sql } from "kysely";
+import type { Db, ItemStatus } from "../src/db.js";
 import { LlmError, type LlmProvider } from "../src/llm/provider.js";
 import { requeueRecentItems, type ScoringSettings, scorePending } from "../src/scoring.js";
 import {
@@ -32,22 +33,26 @@ function verdictsFor(params: AnyParams, { skipIndex }: { skipIndex?: number } = 
   };
 }
 
-function topicLabelsOf(db: Db, itemId: number | undefined): string[] {
-  return (
-    db
-      .prepare(
-        `SELECT t.label FROM item_topics it JOIN topics t ON t.id = it.topic_id
-         WHERE it.item_id = ? ORDER BY it.position`,
-      )
-      .all(itemId) as { label: string }[]
-  ).map((row) => row.label);
+async function topicLabelsOf(db: Db, itemId: number): Promise<string[]> {
+  const rows = await db
+    .selectFrom("item_topics")
+    .innerJoin("topics", "topics.id", "item_topics.topic_id")
+    .select("topics.label")
+    .where("item_topics.item_id", "=", itemId)
+    .orderBy("item_topics.position")
+    .execute();
+  return rows.map((row) => row.label);
 }
 
-function setup(itemCount: number) {
+function stateOf(db: Db, itemId: number) {
+  return db.selectFrom("raw_items").select(["status", "attempts"]).where("id", "=", itemId).executeTakeFirstOrThrow();
+}
+
+async function setup(itemCount: number) {
   const db = memoryDb();
-  insertTopic(db, "Finance", "Financial markets and fintech.");
-  const ids = insertItems(db, itemCount);
-  return { db, ids, ...recordingLog() };
+  await insertTopic(db, "Finance", "Financial markets and fintech.");
+  const [firstId = 0, ...otherIds] = await insertItems(db, itemCount);
+  return { db, firstId, otherIds, ...recordingLog() };
 }
 
 function score(db: Db, llm: LlmProvider, log = recordingLog().log, settings = SETTINGS) {
@@ -57,14 +62,14 @@ function score(db: Db, llm: LlmProvider, log = recordingLog().log, settings = SE
 describe("scorePending", () => {
   it("does nothing without an active topic", async () => {
     const db = memoryDb();
-    insertItems(db, 3);
+    await insertItems(db, 3);
     const { llm, calls } = fakeLlm(() => ({ verdicts: [] }));
     assert.match(await score(db, llm), /No active topic/);
     assert.equal(calls.length, 0);
   });
 
   it("sends full batches and applies the verdicts", async () => {
-    const { db, log } = setup(16);
+    const { db, log } = await setup(16);
     const { llm, calls } = fakeLlm((params) => verdictsFor(params));
 
     const summary = await score(db, llm, log);
@@ -80,53 +85,50 @@ describe("scorePending", () => {
     assert.match(prompt, /### Finance\nFinancial markets and fintech\./);
     assert.match(prompt, /^\[7\] TITLE: Title article 7$/m);
 
-    assert.deepEqual(statusCounts(db), { processed: 16 });
-    const unclassified = db.prepare("SELECT id, score FROM raw_items WHERE title = 'Title article 2'").get() as {
-      id: number;
-      score: number;
-    };
+    assert.deepEqual(await statusCounts(db), { processed: 16 });
+    const unclassified = await db
+      .selectFrom("raw_items")
+      .select(["id", "score"])
+      .where("title", "=", "Title article 2")
+      .executeTakeFirstOrThrow();
     assert.equal(unclassified.score, 1);
-    assert.deepEqual(topicLabelsOf(db, unclassified.id), []);
+    assert.deepEqual(await topicLabelsOf(db, unclassified.id), []);
   });
 
   it("stores every topic of an article in the order given by the LLM, without duplicates", async () => {
-    const { db, ids, log } = setup(1);
-    insertTopic(db, "Linux", "The Linux kernel.");
+    const { db, firstId, log } = await setup(1);
+    await insertTopic(db, "Linux", "The Linux kernel.");
     const { llm } = fakeLlm(() => ({
       verdicts: [{ index: 0, topics: ["Linux", "Finance", "Linux"], score: 8, summary: "Summary." }],
     }));
 
     await score(db, llm, log);
 
-    assert.deepEqual(topicLabelsOf(db, ids[0]), ["Linux", "Finance"]);
+    assert.deepEqual(await topicLabelsOf(db, firstId), ["Linux", "Finance"]);
   });
 
   it("keeps an article without verdict pending and charges it an attempt", async () => {
-    const { db, ids, log } = setup(8);
+    const { db, firstId, log } = await setup(8);
     const { llm } = fakeLlm((params) => verdictsFor(params, { skipIndex: 0 }));
 
     await score(db, llm, log);
 
-    const first = db.prepare("SELECT status, attempts FROM raw_items WHERE id = ?").get(ids[0]);
-    assert.deepEqual(first, { status: "pending", attempts: 1 });
-    assert.deepEqual(statusCounts(db), { pending: 1, processed: 7 });
+    assert.deepEqual(await stateOf(db, firstId), { status: "pending", attempts: 1 });
+    assert.deepEqual(await statusCounts(db), { pending: 1, processed: 7 });
   });
 
   it("marks an article without verdict as failed once it reaches the attempt limit", async () => {
-    const { db, ids, log } = setup(2);
-    db.prepare("UPDATE raw_items SET attempts = 2 WHERE id = ?").run(ids[0]);
+    const { db, firstId, log } = await setup(2);
+    await db.updateTable("raw_items").set({ attempts: 2 }).where("id", "=", firstId).execute();
     const { llm } = fakeLlm((params) => verdictsFor(params, { skipIndex: 0 }));
 
     await score(db, llm, log);
 
-    assert.deepEqual(db.prepare("SELECT status, attempts FROM raw_items WHERE id = ?").get(ids[0]), {
-      status: "failed",
-      attempts: 3,
-    });
+    assert.deepEqual(await stateOf(db, firstId), { status: "failed", attempts: 3 });
   });
 
   it("charges an attempt to a batch with unusable output, then moves on", async () => {
-    const { db, log } = setup(16);
+    const { db, log } = await setup(16);
     const { llm } = fakeLlm((params, call) =>
       call === 1
         ? { verdicts: [{ index: 0, topics: ["Made-up topic"], score: 5, summary: "x" }] }
@@ -136,24 +138,24 @@ describe("scorePending", () => {
     const summary = await score(db, llm, log);
 
     assert.equal(summary, "8 articles scored, 8 failed.");
-    assert.equal(totalAttempts(db), 8);
-    assert.deepEqual(statusCounts(db), { pending: 8, processed: 8 });
+    assert.equal(await totalAttempts(db), 8);
+    assert.deepEqual(await statusCounts(db), { pending: 8, processed: 8 });
   });
 
   it("removes an article from the queue on its third failure", async () => {
-    const { db, ids, log } = setup(1);
-    db.prepare("UPDATE raw_items SET attempts = 2 WHERE id = ?").run(ids[0]);
+    const { db, firstId, log } = await setup(1);
+    await db.updateTable("raw_items").set({ attempts: 2 }).where("id", "=", firstId).execute();
     const { llm } = fakeLlm(() => {
       throw new LlmError("Request refused by the model.", "content");
     });
 
     await score(db, llm, log);
 
-    assert.deepEqual(db.prepare("SELECT status, attempts FROM raw_items").get(), { status: "failed", attempts: 3 });
+    assert.deepEqual(await stateOf(db, firstId), { status: "failed", attempts: 3 });
   });
 
   it("stops scoring without penalizing anyone when the API is down", async () => {
-    const { db, log } = setup(16);
+    const { db, log } = await setup(16);
     const { llm } = fakeLlm((params, call) => {
       if (call === 2) throw new LlmError("Rate limit reached.", "transient");
       return verdictsFor(params);
@@ -163,40 +165,45 @@ describe("scorePending", () => {
       score(db, llm, log),
       /Scoring stopped \(API unavailable\) after 8 scored articles, no article penalized/,
     );
-    assert.equal(totalAttempts(db), 0);
-    assert.deepEqual(statusCounts(db), { pending: 8, processed: 8 }, "the first batch is kept");
+    assert.equal(await totalAttempts(db), 0);
+    assert.deepEqual(await statusCounts(db), { pending: 8, processed: 8 }, "the first batch is kept");
   });
 
   it("stops scoring on a configuration problem or an unexpected error", async () => {
     for (const failure of [new LlmError("API key rejected.", "config"), new Error("unexpected")]) {
-      const { db, log } = setup(4);
+      const { db, log } = await setup(4);
       const { llm } = fakeLlm(() => {
         throw failure;
       });
       await assert.rejects(score(db, llm, log), /Scoring stopped \(configuration\)/);
-      assert.equal(totalAttempts(db), 0);
+      assert.equal(await totalAttempts(db), 0);
     }
   });
 });
 
 describe("requeueRecentItems", () => {
-  it("sends back to scoring the recent articles not sent yet and resets their attempts", () => {
+  it("sends back to scoring the recent articles not sent yet and resets their attempts", async () => {
     const db = memoryDb();
-    const ids = insertItems(db, 6);
-    const setState = db.prepare(
-      "UPDATE raw_items SET status = ?, attempts = ?, fetched_at = datetime('now', ?) WHERE id = ?",
-    );
-    setState.run("processed", 1, "-1 hours", ids[0]);
-    setState.run("discarded", 0, "-47 hours", ids[1]);
-    setState.run("discarded", 0, "-49 hours", ids[2]);
-    setState.run("sent", 0, "-1 hours", ids[3]);
-    setState.run("failed", 3, "-1 hours", ids[4]);
-    setState.run("pending", 2, "-1 hours", ids[5]);
+    const ids = await insertItems(db, 6);
+    const states: [status: ItemStatus, attempts: number, age: string][] = [
+      ["processed", 1, "-1 hours"],
+      ["discarded", 0, "-47 hours"],
+      ["discarded", 0, "-49 hours"],
+      ["sent", 0, "-1 hours"],
+      ["failed", 3, "-1 hours"],
+      ["pending", 2, "-1 hours"],
+    ];
+    for (const [index, [status, attempts, age]] of states.entries()) {
+      await db
+        .updateTable("raw_items")
+        .set({ status, attempts, fetched_at: sql`datetime('now', ${age})` })
+        .where("id", "=", ids[index] ?? 0)
+        .execute();
+    }
 
-    assert.equal(requeueRecentItems(db, 48), 2);
+    assert.equal(await requeueRecentItems(db, 48), 2);
 
-    const rows = db.prepare("SELECT status, attempts FROM raw_items ORDER BY id").all();
-    assert.deepEqual(rows, [
+    assert.deepEqual(await db.selectFrom("raw_items").select(["status", "attempts"]).orderBy("id").execute(), [
       { status: "pending", attempts: 0 },
       { status: "pending", attempts: 0 },
       { status: "discarded", attempts: 0 },
@@ -206,11 +213,11 @@ describe("requeueRecentItems", () => {
     ]);
   });
 
-  it("does nothing when the window is 0", () => {
+  it("does nothing when the window is 0", async () => {
     const db = memoryDb();
-    insertItems(db, 1);
-    db.prepare("UPDATE raw_items SET status = 'discarded'").run();
-    assert.equal(requeueRecentItems(db, 0), 0);
-    assert.deepEqual(statusCounts(db), { discarded: 1 });
+    await insertItems(db, 1);
+    await db.updateTable("raw_items").set({ status: "discarded" }).execute();
+    assert.equal(await requeueRecentItems(db, 0), 0);
+    assert.deepEqual(await statusCounts(db), { discarded: 1 });
   });
 });

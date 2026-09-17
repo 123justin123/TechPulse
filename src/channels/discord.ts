@@ -150,7 +150,7 @@ export class DiscordChannel implements Channel {
     const failures: string[] = [];
     for (const group of digest.groups) {
       try {
-        const route = readRoute(this.routes.get(topicRoute(group.topicId)));
+        const route = readRoute(await this.routes.get(topicRoute(group.topicId)));
         if (!route) throw new Error("its channel does not exist yet");
         for (const payload of renderDigest(digest, group)) {
           await postWebhook(route.webhookUrl, payload, this.log);

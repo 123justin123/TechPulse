@@ -19,15 +19,6 @@ export interface RegisteredTopic {
   reactivated: boolean;
 }
 
-interface TopicRow {
-  id: number;
-  label: string;
-  description: string;
-  rawInput: string;
-  active: 0 | 1;
-  createdAt: string;
-}
-
 const TopicSchema = z.object({
   label: z.string().describe("Short topic name, 1 to 3 words, capitalized."),
   description: z
@@ -81,7 +72,11 @@ export async function addTopics(
   const deduced = uniqueByLabel(topics);
   if (deduced.length === 0) throw new Error("No topic could be deduced from this sentence.");
 
-  return db.transaction(() => deduced.map((topic) => saveTopic(db, topic, rawInput)))();
+  return db.transaction().execute(async (trx) => {
+    const registered: RegisteredTopic[] = [];
+    for (const topic of deduced) registered.push(await saveTopic(trx, topic, rawInput));
+    return registered;
+  });
 }
 
 function uniqueByLabel<T extends { label: string }>(topics: T[]): T[] {
@@ -94,37 +89,54 @@ function uniqueByLabel<T extends { label: string }>(topics: T[]): T[] {
   });
 }
 
-function saveTopic(db: Db, deduced: Pick<Topic, "label" | "description">, rawInput: string): RegisteredTopic {
-  const existing = db.prepare("SELECT id, active FROM topics WHERE label = ?").get(deduced.label) as
-    | Pick<TopicRow, "id" | "active">
-    | undefined;
+async function saveTopic(
+  db: Db,
+  { label, description }: Pick<Topic, "label" | "description">,
+  rawInput: string,
+): Promise<RegisteredTopic> {
+  const existing = await db.selectFrom("topics").select(["id", "active"]).where("label", "=", label).executeTakeFirst();
 
   if (existing) {
-    db.prepare("UPDATE topics SET description = ?, raw_input = ?, active = 1 WHERE id = ?").run(
-      deduced.description,
-      rawInput,
-      existing.id,
-    );
-    return { ...deduced, id: existing.id, created: false, reactivated: existing.active === 0 };
+    await db
+      .updateTable("topics")
+      .set({ description, raw_input: rawInput, active: 1 })
+      .where("id", "=", existing.id)
+      .execute();
+    return { id: existing.id, label, description, created: false, reactivated: existing.active === 0 };
   }
 
-  const { lastInsertRowid } = db
-    .prepare("INSERT INTO topics (label, description, raw_input) VALUES (?, ?, ?)")
-    .run(deduced.label, deduced.description, rawInput);
-  return { ...deduced, id: Number(lastInsertRowid), created: true, reactivated: false };
+  const { id } = await db
+    .insertInto("topics")
+    .values({ label, description, raw_input: rawInput })
+    .returning("id")
+    .executeTakeFirstOrThrow();
+  return { id, label, description, created: true, reactivated: false };
 }
 
-export function removeTopic(db: Db, label: string): boolean {
-  return db.prepare("UPDATE topics SET active = 0 WHERE label = ? AND active = 1").run(label.trim()).changes > 0;
+export async function removeTopic(db: Db, label: string): Promise<boolean> {
+  const { numUpdatedRows } = await db
+    .updateTable("topics")
+    .set({ active: 0 })
+    .where("label", "=", label.trim())
+    .where("active", "=", 1)
+    .executeTakeFirst();
+  return numUpdatedRows > 0n;
 }
 
-export function listTopics(db: Db, { activeOnly = false }: { activeOnly?: boolean } = {}): Topic[] {
-  const rows = db
-    .prepare(
-      `SELECT id, label, description, raw_input AS rawInput, active, created_at AS createdAt
-       FROM topics ${activeOnly ? "WHERE active = 1" : ""}
-       ORDER BY active DESC, label ASC`,
-    )
-    .all() as TopicRow[];
-  return rows.map((row) => ({ ...row, active: row.active === 1 }));
+export async function listTopics(db: Db, { activeOnly = false }: { activeOnly?: boolean } = {}): Promise<Topic[]> {
+  const rows = await db
+    .selectFrom("topics")
+    .select(["id", "label", "description", "raw_input", "active", "created_at"])
+    .$if(activeOnly, (query) => query.where("active", "=", 1))
+    .orderBy("active", "desc")
+    .orderBy("label", "asc")
+    .execute();
+  return rows.map((row) => ({
+    id: row.id,
+    label: row.label,
+    description: row.description,
+    rawInput: row.raw_input,
+    active: row.active === 1,
+    createdAt: row.created_at,
+  }));
 }

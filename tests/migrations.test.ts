@@ -1,21 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import Database from "better-sqlite3";
+import SQLite from "better-sqlite3";
 import { type Kysely, sql } from "kysely";
-import type { Db } from "../src/db.js";
+import { connect, type Db } from "../src/db.js";
 import { MIGRATIONS, MigrationError, migrate } from "../src/migrations/index.js";
 
-function emptyDb(): Db {
-  const db = new Database(":memory:");
-  db.pragma("foreign_keys = ON");
-  return db;
+const emptyDb = (): Db => connect(new SQLite(":memory:"));
+
+async function appliedNames(db: Db): Promise<string[]> {
+  const { rows } = await sql<{ name: string }>`SELECT name FROM kysely_migration ORDER BY name`.execute(db);
+  return rows.map((row) => row.name);
 }
 
-const appliedNames = (db: Db) =>
-  (db.prepare("SELECT name FROM kysely_migration ORDER BY name").all() as { name: string }[]).map((row) => row.name);
-
-const tableExists = (db: Db, name: string) =>
-  db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
+async function tableNames(db: Db): Promise<string[]> {
+  return (await db.introspection.getTables()).map((table) => table.name);
+}
 
 const createTable = (name: string) => ({
   async up(db: Kysely<unknown>) {
@@ -30,37 +29,44 @@ describe("migrate", () => {
     assert.deepEqual(await migrate(db), ["0001_initial"]);
     assert.deepEqual(await migrate(db), []);
 
-    assert.deepEqual(appliedNames(db), Object.keys(MIGRATIONS));
-    for (const table of ["topics", "raw_items", "item_topics", "channel_routes"]) {
-      assert.ok(tableExists(db, table), `${table} exists`);
-    }
+    assert.deepEqual(await appliedNames(db), Object.keys(MIGRATIONS));
+    assert.deepEqual(await tableNames(db), ["channel_routes", "item_topics", "raw_items", "topics"]);
   });
 
   it("keeps labels case-insensitive and fills the default values of an article", async () => {
     const db = emptyDb();
     await migrate(db);
-    const insertTopic = db.prepare("INSERT INTO topics (label, description, raw_input) VALUES (?, 'd', 'r')");
-    insertTopic.run("Finance");
+    const insertTopic = (label: string) =>
+      db.insertInto("topics").values({ label, description: "d", raw_input: "r" }).execute();
+    await insertTopic("Finance");
 
-    assert.throws(() => insertTopic.run("FINANCE"), /UNIQUE constraint failed/);
-    db.prepare("INSERT INTO raw_items (source, title, url) VALUES ('rss', 'Article', 'https://example.test/a')").run();
-    assert.deepEqual(db.prepare("SELECT status, attempts, fetched_at IS NOT NULL AS fetched FROM raw_items").get(), {
-      status: "pending",
-      attempts: 0,
-      fetched: 1,
-    });
+    await assert.rejects(insertTopic("FINANCE"), /UNIQUE constraint failed/);
+    await db
+      .insertInto("raw_items")
+      .values({ source: "rss", title: "Article", url: "https://example.test/a" })
+      .execute();
+    const article = await db
+      .selectFrom("raw_items")
+      .select(["status", "attempts", "fetched_at"])
+      .executeTakeFirstOrThrow();
+    assert.equal(article.status, "pending");
+    assert.equal(article.attempts, 0);
+    assert.match(article.fetched_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   });
 
   it("deletes the topics of an article along with the article", async () => {
     const db = emptyDb();
     await migrate(db);
-    db.prepare("INSERT INTO topics (label, description, raw_input) VALUES ('Finance', 'Definition.', 'finance')").run();
-    db.prepare("INSERT INTO raw_items (source, title, url) VALUES ('rss', 'Article', 'https://example.test/a')").run();
-    db.prepare("INSERT INTO item_topics (item_id, topic_id, position) VALUES (1, 1, 0)").run();
+    await db.insertInto("topics").values({ label: "Finance", description: "d", raw_input: "r" }).execute();
+    await db
+      .insertInto("raw_items")
+      .values({ source: "rss", title: "Article", url: "https://example.test/a" })
+      .execute();
+    await db.insertInto("item_topics").values({ item_id: 1, topic_id: 1, position: 0 }).execute();
 
-    db.prepare("DELETE FROM raw_items").run();
+    await db.deleteFrom("raw_items").execute();
 
-    assert.deepEqual(db.prepare("SELECT * FROM item_topics").all(), []);
+    assert.deepEqual(await db.selectFrom("item_topics").selectAll().execute(), []);
   });
 
   it("applies only the migrations added since the last start", async () => {
@@ -70,7 +76,7 @@ describe("migrate", () => {
     const applied = await migrate(db, { migrations: { "0001_a": createTable("a"), "0002_b": createTable("b") } });
 
     assert.deepEqual(applied, ["0002_b"]);
-    assert.ok(tableExists(db, "b"));
+    assert.deepEqual(await tableNames(db), ["a", "b"]);
   });
 
   it("refuses to start when the database has a migration unknown to the code", async () => {
@@ -102,8 +108,7 @@ describe("migrate", () => {
         /Migration 0002_b failed and was rolled back: no such table: missing_table/.test(error.message),
     );
 
-    assert.ok(tableExists(db, "a"));
-    assert.ok(!tableExists(db, "b"));
-    assert.deepEqual(appliedNames(db), ["0001_a"]);
+    assert.deepEqual(await tableNames(db), ["a"]);
+    assert.deepEqual(await appliedNames(db), ["0001_a"]);
   });
 });

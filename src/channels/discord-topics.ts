@@ -85,7 +85,7 @@ export async function syncTopicChannels({
   };
 
   const openChannel = async (topic: TopicState): Promise<void> => {
-    const route = readRoute(routes.get(topicRoute(topic.id)));
+    const route = readRoute(await routes.get(topicRoute(topic.id)));
     const parentId = await categoryId(TOPIC_CATEGORY, false);
     const existing = route && (await api.fetchTextChannel(route.channelId));
 
@@ -107,15 +107,18 @@ export async function syncTopicChannels({
 
     const keepsWebhook = route?.channelId === channel.id && (await api.hasWebhook(channel.id, route.webhookUrl));
     const webhookUrl = keepsWebhook ? route.webhookUrl : await api.createWebhook(channel.id);
-    routes.set(topicRoute(topic.id), JSON.stringify({ channelId: channel.id, webhookUrl } satisfies WebhookRoute));
+    await routes.set(
+      topicRoute(topic.id),
+      JSON.stringify({ channelId: channel.id, webhookUrl } satisfies WebhookRoute),
+    );
   };
 
   const archiveChannel = async (topic: TopicState): Promise<void> => {
-    const route = readRoute(routes.get(topicRoute(topic.id)));
+    const route = readRoute(await routes.get(topicRoute(topic.id)));
     if (!route) return;
     const channel = await api.fetchTextChannel(route.channelId);
     if (!channel) {
-      routes.delete(topicRoute(topic.id));
+      await routes.delete(topicRoute(topic.id));
       return;
     }
     const parentId = await categoryId(ARCHIVE_CATEGORY, true);

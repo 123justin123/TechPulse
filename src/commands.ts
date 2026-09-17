@@ -51,7 +51,7 @@ export function createCommandHandler({
         case "topic-add": {
           const topics = await addTopics({ db, llm, language }, command.phrase);
           await syncTopics();
-          const requeuedCount = requeueRecentItems(db, rescoreWindowHours);
+          const requeuedCount = await requeueRecentItems(db, rescoreWindowHours);
           const reply: CommandReply = topics.map((topic) => ({
             title: `${topicOutcome(topic)}: ${topic.label}`,
             body: topic.description,
@@ -65,12 +65,12 @@ export function createCommandHandler({
         }
 
         case "topic-remove":
-          if (!removeTopic(db, command.label)) return text(`No active topic named "${command.label}".`);
+          if (!(await removeTopic(db, command.label))) return text(`No active topic named "${command.label}".`);
           await syncTopics();
           return text(`Topic "${command.label}" disabled. Already classified articles keep it.`);
 
         case "topic-list": {
-          const topics = listTopics(db);
+          const topics = await listTopics(db);
           if (topics.length === 0) return text("No topic yet. Add one to start scoring articles.");
           return topics.map((topic) => ({
             title: `${topic.active ? "●" : "○"} ${topic.label}${topic.active ? "" : " (inactive)"}`,

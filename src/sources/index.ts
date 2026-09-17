@@ -35,9 +35,9 @@ export async function collectAll(
       const sourceLog = log.child(source.name);
       try {
         const collectedItems = await source.collect({ log: sourceLog, now, since });
-        const newItems = selectNewItems(db, collectedItems);
+        const newItems = await selectNewItems(db, collectedItems);
         const enrichedItems = await enrichShortExcerpts(newItems, describePage, sourceLog);
-        const insertedCount = saveItems(db, source.name, enrichedItems);
+        const insertedCount = await saveItems(db, source.name, enrichedItems);
         insertedTotal += insertedCount;
         return `${source.name} ${insertedCount}`;
       } catch (error) {
@@ -64,37 +64,40 @@ async function readJsonFile<T>(file: string, schema: z.ZodType<T>): Promise<T> {
   return parsed.data;
 }
 
-function selectNewItems(db: Db, items: readonly CollectedItem[]): CollectedItem[] {
-  const isKnown = db.prepare("SELECT 1 FROM raw_items WHERE url = ?");
-  const seenUrls = new Set<string>();
-
-  return items.flatMap((item) => {
+async function selectNewItems(db: Db, items: readonly CollectedItem[]): Promise<CollectedItem[]> {
+  const candidates = new Map<string, CollectedItem>();
+  for (const item of items) {
     const url = item.url.trim();
     const title = item.title.trim();
-    if (!url || !title || seenUrls.has(url) || isKnown.get(url)) return [];
-    seenUrls.add(url);
-    return [{ ...item, url, title, content: cleanExcerpt(item.content) }];
-  });
+    if (!url || !title || candidates.has(url)) continue;
+    candidates.set(url, { ...item, url, title, content: cleanExcerpt(item.content) });
+  }
+  if (candidates.size === 0) return [];
+
+  const known = await db
+    .selectFrom("raw_items")
+    .select("url")
+    .where("url", "in", [...candidates.keys()])
+    .execute();
+  for (const { url } of known) candidates.delete(url);
+  return [...candidates.values()];
 }
 
-function saveItems(db: Db, sourceName: string, items: readonly CollectedItem[]): number {
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO raw_items (source, source_ref, title, url, content, published_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  );
-
-  return db.transaction(() => {
-    let insertedCount = 0;
-    for (const item of items) {
-      insertedCount += insert.run(
-        sourceName,
-        item.sourceRef,
-        item.title,
-        item.url,
-        item.content ?? null,
-        item.publishedAt ?? null,
-      ).changes;
-    }
-    return insertedCount;
-  })();
+async function saveItems(db: Db, sourceName: string, items: readonly CollectedItem[]): Promise<number> {
+  if (items.length === 0) return 0;
+  const { numInsertedOrUpdatedRows } = await db
+    .insertInto("raw_items")
+    .orIgnore()
+    .values(
+      items.map((item) => ({
+        source: sourceName,
+        source_ref: item.sourceRef,
+        title: item.title,
+        url: item.url,
+        content: item.content ?? null,
+        published_at: item.publishedAt ?? null,
+      })),
+    )
+    .executeTakeFirst();
+  return Number(numInsertedOrUpdatedRows ?? 0n);
 }
