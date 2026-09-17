@@ -91,9 +91,11 @@ Sources are RSS or Atom feeds in `config/feeds.json`, built into the image (rede
 ```
 
 Sites without a feed can go through a bridge: `https://hnrss.org/frontpage?points=100` for
-Hacker News, `https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml` for GitHub
-Trending, `https://www.reddit.com/r/<subreddit>/top/.rss?t=day` for Reddit (keep one or two:
+Hacker News, `https://www.reddit.com/r/<subreddit>/top/.rss?t=day` for Reddit (keep one or two:
 Reddit rate-limits anonymous clients).
+
+Prefer independent, topic-focused sources to vendor blogs and high-volume news sites: every
+article costs an LLM call, and a feed without a usable excerpt cannot be scored reliably.
 
 ### LLM
 
