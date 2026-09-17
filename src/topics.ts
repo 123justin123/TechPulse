@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Db } from "./db/schema.js";
+import { plainText } from "./lib/text.js";
 import type { LlmProvider } from "./llm/provider.js";
 
 export interface Topic {
@@ -50,8 +51,20 @@ meant for a classifier: state the scope of the topic, name the subtopics and tec
 that typically belong to it, and explicitly delimit what does not belong to it in order
 to avoid false positives.
 
-Never write in the second person and never address the user.
+When a subject matches one of the existing topics you are given, reuse its label exactly,
+character for character, instead of inventing a new one: the label identifies the topic.
+
+Never write in the second person and never address the user. Write plain text: no HTML
+entities, no markdown.
 Write the label and the description in ${language}.`;
+}
+
+function buildUserPrompt(existingTopics: readonly Topic[], rawInput: string): string {
+  const existingSection =
+    existingTopics.length > 0
+      ? `Existing topics:\n\n${existingTopics.map((topic) => `- ${topic.label}: ${topic.description}`).join("\n")}\n\n`
+      : "";
+  return `${existingSection}Areas of interest expressed by the user:\n\n${rawInput}`;
 }
 
 export async function addTopics(
@@ -63,13 +76,15 @@ export async function addTopics(
 
   const { topics } = await llm.completeJson({
     system: buildSystemPrompt(language),
-    prompt: `Areas of interest expressed by the user:\n\n${rawInput}`,
+    prompt: buildUserPrompt(await listTopics(db), rawInput),
     schema: TopicListSchema,
     model: llm.models.topic,
     effort: "high",
   });
 
-  const deduced = uniqueByLabel(topics);
+  const deduced = uniqueByLabel(
+    topics.map(({ label, description }) => ({ label: plainText(label), description: plainText(description) })),
+  );
   if (deduced.length === 0) throw new Error("No topic could be deduced from this sentence.");
 
   return db.transaction().execute(async (trx) => {

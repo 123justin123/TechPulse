@@ -29,6 +29,23 @@ describe("topics", () => {
     assert.equal(saved?.active, true);
   });
 
+  it("gives the LLM every existing topic, archived ones included, so it can reuse their exact label", async () => {
+    const db = memoryDb();
+    const { llm, calls } = fakeLlm((_params, call) => deduced(call === 1 ? LINUX : FINANCE));
+    const dependencies = { db, llm, language: TEST_LANGUAGE };
+    await addTopics(dependencies, "linux");
+    await removeTopic(db, "Linux");
+
+    await addTopics(dependencies, "self-hosting");
+
+    assert.doesNotMatch(calls[0]?.prompt ?? "", /Existing topics/);
+    assert.match(
+      calls[1]?.prompt ?? "",
+      /^Existing topics:\n\n- Linux: The Linux kernel and distributions\.\n\nAreas of interest expressed by the user:\n\nself-hosting$/,
+    );
+    assert.match(calls[1]?.system ?? "", /reuse its label exactly/);
+  });
+
   it("updates an existing topic and reactivates it when it was disabled", async () => {
     const db = memoryDb();
     const { llm } = fakeLlm(() => deduced(FINANCE));
@@ -72,6 +89,28 @@ describe("topics", () => {
     const { llm } = fakeLlm(() => deduced());
     await assert.rejects(addTopics({ db, llm, language: TEST_LANGUAGE }, "hello"), /No topic could be deduced/);
     assert.equal((await listTopics(db)).length, 0);
+  });
+
+  it("decodes HTML entities written by the LLM, so an accented label matches its existing topic", async () => {
+    const db = memoryDb();
+    const responses = [
+      { label: "Auto-hébergement", description: "Serveurs personnels." },
+      { label: " Auto-h&eacute;bergement ", description: "Serveurs &amp; services personnels." },
+    ];
+    const { llm } = fakeLlm((_params, call) => deduced(responses[call - 1] ?? FINANCE));
+    const dependencies = { db, llm, language: TEST_LANGUAGE };
+    await addTopics(dependencies, "self-hosting");
+
+    const [topic] = await addTopics(dependencies, "self-hosting again");
+
+    assert.deepEqual(topic, {
+      id: 1,
+      label: "Auto-hébergement",
+      description: "Serveurs & services personnels.",
+      created: false,
+      reactivated: false,
+    });
+    assert.equal((await listTopics(db)).length, 1);
   });
 
   it("rejects an empty sentence without calling the LLM", async () => {

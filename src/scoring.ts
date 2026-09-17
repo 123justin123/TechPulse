@@ -2,6 +2,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import type { Db, ItemStatus } from "./db/schema.js";
 import { errorMessage, type Logger } from "./lib/logger.js";
+import { plainText } from "./lib/text.js";
 import { LlmError, type LlmProvider } from "./llm/provider.js";
 import { listTopics, type Topic } from "./topics.js";
 
@@ -48,7 +49,8 @@ An article without any topic never scores above 3. Be strict: a useful digest is
 short digest, and most articles in a feed are of no particular interest to anyone.
 
 SUMMARY: one or two factual sentences, written in ${language}, stating what the article
-concretely brings. No hook, no "this article explains that".
+concretely brings. No hook, no "this article explains that". Plain text: no HTML entities,
+no markdown.
 
 Return one verdict per article, reusing the provided index.`;
 }
@@ -180,7 +182,7 @@ async function applyVerdicts(
         .set({
           status: "processed",
           score: verdict.score,
-          summary: verdict.summary,
+          summary: plainText(verdict.summary),
           processed_at: sql`datetime('now')`,
         })
         .where("id", "=", item.id)

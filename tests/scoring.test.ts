@@ -107,6 +107,22 @@ describe("scorePending", () => {
     assert.deepEqual(await topicLabelsOf(db, firstId), ["Linux", "Finance"]);
   });
 
+  it("stores the summary as plain text even when the LLM writes HTML entities", async () => {
+    const { db, firstId, log } = await setup(1);
+    const { llm } = fakeLlm(() => ({
+      verdicts: [{ index: 0, topics: ["Finance"], score: 7, summary: " Rust &amp; C&#43;&#43; interop. " }],
+    }));
+
+    await score(db, llm, log);
+
+    const { summary } = await db
+      .selectFrom("raw_items")
+      .select("summary")
+      .where("id", "=", firstId)
+      .executeTakeFirstOrThrow();
+    assert.equal(summary, "Rust & C++ interop.");
+  });
+
   it("keeps an article without verdict pending and charges it an attempt", async () => {
     const { db, firstId, log } = await setup(8);
     const { llm } = fakeLlm((params) => verdictsFor(params, { skipIndex: 0 }));
