@@ -105,6 +105,7 @@ clear them. On Gemini's free tier, only Flash models are available.
 | `CRON_COLLECT` / `CRON_SCORE` / `CRON_DIGEST` | every 2 h / every 2 h / 8:00 | schedules, in `TZ` |
 | `MAX_ITEM_AGE_DAYS` | `7` | ignore older articles |
 | `AI_MAX_ITEMS_PER_RUN` | `60` | articles scored per run |
+| `AI_RESCORE_WINDOW_HOURS` | `48` | when a topic is added, rescore the unsent articles of that window (`0` disables) |
 
 All variables are documented in `.env.example`.
 

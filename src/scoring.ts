@@ -8,6 +8,7 @@ export interface ScoringSettings {
   batchSize: number;
   maxAttempts: number;
   maxItemsPerRun: number;
+  rescoreWindowHours: number;
 }
 
 interface PendingItem {
@@ -145,6 +146,17 @@ export async function scorePending({
   }
 
   return `${scoredCount} articles scored, ${failedCount} failed.`;
+}
+
+export function requeueRecentItems(db: Db, windowHours: number): number {
+  if (windowHours === 0) return 0;
+  return db
+    .prepare(
+      `UPDATE raw_items
+       SET status = 'pending', attempts = 0
+       WHERE status IN ('processed', 'discarded') AND fetched_at >= datetime('now', ?)`,
+    )
+    .run(`-${windowHours} hours`).changes;
 }
 
 function applyVerdicts(

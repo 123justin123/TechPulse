@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createCommandHandler, type JobName } from "../src/commands.js";
 import { LlmError } from "../src/llm/provider.js";
-import { fakeLlm, memoryDb, TEST_LANGUAGE } from "./helpers.js";
+import { fakeLlm, insertItems, memoryDb, statusCounts, TEST_LANGUAGE } from "./helpers.js";
 
 const FINANCE = { label: "Finance", description: "Financial markets and fintech." };
 
@@ -15,10 +15,12 @@ function setup({
 } = {}) {
   const { llm, calls } = fakeLlm(respond);
   const ranJobs: JobName[] = [];
+  const db = memoryDb();
   const handle = createCommandHandler({
-    db: memoryDb(),
+    db,
     llm,
     language: TEST_LANGUAGE,
+    rescoreWindowHours: 48,
     runJob:
       runJob ??
       (async (job) => {
@@ -26,7 +28,7 @@ function setup({
         return `Summary of ${job}.`;
       }),
   });
-  return { handle, calls, ranJobs };
+  return { handle, calls, ranJobs, db };
 }
 
 describe("command handler", () => {
@@ -43,6 +45,17 @@ describe("command handler", () => {
       { title: "Topic created: Linux", body: "The Linux kernel." },
       { title: "Topic created: Finance", body: "Financial markets and fintech." },
     ]);
+  });
+
+  it("announces how many recent articles will be rescored against the new topics", async () => {
+    const { handle, db } = setup();
+    insertItems(db, 2);
+    db.prepare("UPDATE raw_items SET status = 'discarded'").run();
+
+    const reply = await handle({ name: "topic-add", phrase: "finance" });
+
+    assert.deepEqual(reply.at(-1), { body: "2 articles from the last 48 h will be rescored on the next score run." });
+    assert.deepEqual(statusCounts(db), { pending: 2 });
   });
 
   it("asks for a sentence instead of calling the LLM for nothing", async () => {

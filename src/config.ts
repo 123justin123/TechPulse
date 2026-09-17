@@ -11,7 +11,7 @@ export interface Config {
   llm: { provider: ProviderName; apiKey: string; models: { topic?: string; scoring?: string } };
   channels: ChannelConfig[];
   collect: { maxItemAgeDays: number };
-  scoring: { batchSize: number; maxAttempts: number; maxItemsPerRun: number };
+  scoring: { batchSize: number; maxAttempts: number; maxItemsPerRun: number; rescoreWindowHours: number };
   digest: { threshold: number; maxItems: number };
   cron: { collect: string; score: string; digest: string };
 }
@@ -45,6 +45,7 @@ export function loadConfig(environment: Environment = process.env): Config {
       batchSize: env.integer("AI_BATCH_SIZE", 8, 1),
       maxAttempts: env.integer("AI_MAX_ATTEMPTS", 3, 1),
       maxItemsPerRun: env.integer("AI_MAX_ITEMS_PER_RUN", 60, 1),
+      rescoreWindowHours: env.integer("AI_RESCORE_WINDOW_HOURS", 48, 0),
     },
     digest: {
       threshold: env.integer("DIGEST_SCORE_THRESHOLD", 6, 0, 10),

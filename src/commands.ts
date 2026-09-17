@@ -1,6 +1,7 @@
 import type { Db } from "./db.js";
 import type { LlmProvider } from "./llm/provider.js";
 import { errorMessage } from "./logger.js";
+import { requeueRecentItems } from "./scoring.js";
 import { addTopics, listTopics, removeTopic } from "./topics.js";
 
 export const JOB_NAMES = ["collect", "score", "digest"] as const;
@@ -29,18 +30,35 @@ export interface CommandHandlerDependencies {
   db: Db;
   llm: LlmProvider;
   language: string;
+  rescoreWindowHours: number;
   runJob: (job: JobName) => Promise<string>;
 }
 
 const text = (body: string): CommandReply => [{ body }];
 
-export function createCommandHandler({ db, llm, language, runJob }: CommandHandlerDependencies): CommandHandler {
+export function createCommandHandler({
+  db,
+  llm,
+  language,
+  rescoreWindowHours,
+  runJob,
+}: CommandHandlerDependencies): CommandHandler {
   return async (command) => {
     try {
       switch (command.name) {
         case "topic-add": {
           const topics = await addTopics({ db, llm, language }, command.phrase);
-          return topics.map((topic) => ({ title: `${topicOutcome(topic)}: ${topic.label}`, body: topic.description }));
+          const requeuedCount = requeueRecentItems(db, rescoreWindowHours);
+          const reply: CommandReply = topics.map((topic) => ({
+            title: `${topicOutcome(topic)}: ${topic.label}`,
+            body: topic.description,
+          }));
+          if (requeuedCount > 0) {
+            reply.push({
+              body: `${requeuedCount} articles from the last ${rescoreWindowHours} h will be rescored on the next score run.`,
+            });
+          }
+          return reply;
         }
 
         case "topic-remove":

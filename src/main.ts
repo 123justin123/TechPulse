@@ -77,7 +77,13 @@ log.info(
 );
 
 await channel.listen?.(
-  createCommandHandler({ db, llm, language: config.language, runJob: (job) => scheduler.runNow(job) }),
+  createCommandHandler({
+    db,
+    llm,
+    language: config.language,
+    rescoreWindowHours: config.scoring.rescoreWindowHours,
+    runJob: (job) => scheduler.runNow(job),
+  }),
 );
 scheduler.start();
 

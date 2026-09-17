@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Db } from "../src/db.js";
 import { LlmError, type LlmProvider } from "../src/llm/provider.js";
-import { type ScoringSettings, scorePending } from "../src/scoring.js";
+import { requeueRecentItems, type ScoringSettings, scorePending } from "../src/scoring.js";
 import {
   type AnyParams,
   fakeLlm,
@@ -15,7 +15,7 @@ import {
   totalAttempts,
 } from "./helpers.js";
 
-const SETTINGS: ScoringSettings = { batchSize: 8, maxAttempts: 3, maxItemsPerRun: 60 };
+const SETTINGS: ScoringSettings = { batchSize: 8, maxAttempts: 3, maxItemsPerRun: 60, rescoreWindowHours: 48 };
 
 function verdictsFor(params: AnyParams, { skipIndex }: { skipIndex?: number } = {}) {
   const itemCount = [...params.prompt.matchAll(/^\[(\d+)\] TITLE/gm)].length;
@@ -176,5 +176,41 @@ describe("scorePending", () => {
       await assert.rejects(score(db, llm, log), /Scoring stopped \(configuration\)/);
       assert.equal(totalAttempts(db), 0);
     }
+  });
+});
+
+describe("requeueRecentItems", () => {
+  it("sends back to scoring the recent articles not sent yet and resets their attempts", () => {
+    const db = memoryDb();
+    const ids = insertItems(db, 6);
+    const setState = db.prepare(
+      "UPDATE raw_items SET status = ?, attempts = ?, fetched_at = datetime('now', ?) WHERE id = ?",
+    );
+    setState.run("processed", 1, "-1 hours", ids[0]);
+    setState.run("discarded", 0, "-47 hours", ids[1]);
+    setState.run("discarded", 0, "-49 hours", ids[2]);
+    setState.run("sent", 0, "-1 hours", ids[3]);
+    setState.run("failed", 3, "-1 hours", ids[4]);
+    setState.run("pending", 2, "-1 hours", ids[5]);
+
+    assert.equal(requeueRecentItems(db, 48), 2);
+
+    const rows = db.prepare("SELECT status, attempts FROM raw_items ORDER BY id").all();
+    assert.deepEqual(rows, [
+      { status: "pending", attempts: 0 },
+      { status: "pending", attempts: 0 },
+      { status: "discarded", attempts: 0 },
+      { status: "sent", attempts: 0 },
+      { status: "failed", attempts: 3 },
+      { status: "pending", attempts: 2 },
+    ]);
+  });
+
+  it("does nothing when the window is 0", () => {
+    const db = memoryDb();
+    insertItems(db, 1);
+    db.prepare("UPDATE raw_items SET status = 'discarded'").run();
+    assert.equal(requeueRecentItems(db, 0), 0);
+    assert.deepEqual(statusCounts(db), { discarded: 1 });
   });
 });
